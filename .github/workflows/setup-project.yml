@@ -1,17 +1,19 @@
-name: Setup WinlatorHUD Project
+name: WinlatorHUD CI
 
 on:
   workflow_dispatch:
   push:
+    tags:
+      - 'v*'
     paths:
       - '.github/workflows/setup-project.yml'
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   setup:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -21,7 +23,6 @@ jobs:
         run: |
           mkdir -p winlator-hud/src/main/java/com/winlator/hud
           mkdir -p winlator-hud/src/main/res/values
-          mkdir -p .github/workflows
           mkdir -p patch docs gradle/wrapper
 
       - name: Generate WinlatorHUD.java
@@ -1218,122 +1219,6 @@ jobs:
           rm /tmp/winlatorhud.b64
           echo "WinlatorHUD.java generated ($(wc -l < winlator-hud/src/main/java/com/winlator/hud/WinlatorHUD.java) lines)"
 
-      - name: Generate release workflow
-        run: |
-          cat > .github/workflows/release.yml << 'RELEASE_EOF'
-          name: Build and Release
-
-          on:
-            push:
-              tags:
-                - 'v*'
-            workflow_dispatch:
-              inputs:
-                version:
-                  description: '版本号（如 2.0.0）'
-                  required: true
-                  default: '2.0.0'
-                prerelease:
-                  description: '预发布后缀（alpha/beta/rc，留空为正式版）'
-                  required: false
-                  default: ''
-
-          permissions:
-            contents: write
-
-          jobs:
-            build:
-              runs-on: ubuntu-latest
-              steps:
-                - name: Checkout
-                  uses: actions/checkout@v4
-
-                - name: Set up JDK 17
-                  uses: actions/setup-java@v4
-                  with:
-                    java-version: '17'
-                    distribution: 'temurin'
-
-                - name: Cache Gradle
-                  uses: actions/cache@v4
-                  with:
-                    path: |
-                      ~/.gradle/caches
-                      ~/.gradle/wrapper
-                    key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-                    restore-keys: gradle-${{ runner.os }}-
-
-                - name: Build AAR
-                  run: |
-                    chmod +x gradlew 2>/dev/null || true
-                    ./gradlew :winlator-hud:assembleRelease --no-daemon
-                    ls -lh winlator-hud/build/outputs/aar/
-
-                - name: Extract version
-                  id: version
-                  run: |
-                    if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-                      VERSION="${GITHUB_REF_NAME#v}"
-                    else
-                      VERSION="${{ github.event.inputs.version }}"
-                    fi
-                    PRERELEASE="${{ github.event.inputs.prerelease }}"
-                    if [ -n "$PRERELEASE" ]; then
-                      FULL_VERSION="${VERSION}-${PRERELEASE}"
-                      IS_PRERELEASE="true"
-                    else
-                      FULL_VERSION="${VERSION}"
-                      IS_PRERELEASE="false"
-                    fi
-                    echo "version=$FULL_VERSION" >> $GITHUB_OUTPUT
-                    echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
-
-                - name: Rename AAR
-                  run: |
-                    cp winlator-hud/build/outputs/aar/winlator-hud-release.aar \
-                       winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar
-                    sha256sum winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar > \
-                       winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar.sha256
-
-                - name: Generate release notes
-                  run: |
-                    VERSION="${{ steps.version.outputs.version }}"
-                    cat > release_notes.md << NOTES_EOF
-                    ## WinlatorHUD v$VERSION
-
-                    ### 集成方式
-
-                    **AAR 依赖（推荐）**
-                    1. 下载下方 WinlatorHUD-$VERSION.aar
-                    2. 放入目标项目 app/libs/ 目录
-                    3. app/build.gradle 添加: implementation files('libs/WinlatorHUD-$VERSION.aar')
-                    4. XServerDisplayActivity.onCreate 调用 WinlatorHUD.init(this)
-                    5. 渲染循环调用 WinlatorHUD.recordFrame()
-
-                    **源码集成**
-                    复制 WinlatorHUD.java 到目标项目 com.winlator.hud 包下。
-
-                    ### 校验
-                    SHA-256 见附件 .sha256 文件
-
-                    ### 兼容性
-                    Android API 24+ / Winlator 全版本 / Adreno 完全支持
-                    NOTES_EOF
-
-                - name: Create Release
-                  uses: softprops/action-gh-release@v2
-                  with:
-                    tag_name: v${{ steps.version.outputs.version }}
-                    name: WinlatorHUD v${{ steps.version.outputs.version }}
-                    body_path: release_notes.md
-                    prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
-                    files: |
-                      winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar
-                      winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar.sha256
-
-          RELEASE_EOF
-          echo "release.yml generated"
-
       - name: Generate build files
         run: |
           cat > build.gradle << 'GRADLE_EOF'
@@ -1553,13 +1438,12 @@ jobs:
           | 标准 | 单击 | 默认 14 项核心指标 |
           | 详细 | 单击 | 全部 24 项 |
 
-          ## 构建
+          ## 构建与发布
 
-          ```bash
-          ./gradlew :winlator-hud:assembleRelease
-          ```
+          本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
-          推送 tag 触发自动发布：
+          - 手动触发（Actions -> Run workflow）：初始化项目结构
+          - 推送 tag（git tag v2.0.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
           ```bash
           git tag v2.0.0
@@ -1725,5 +1609,80 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "feat: initialize WinlatorHUD v2.0.0 — Android View performance overlay with auto-release pipeline" || echo "No changes to commit"
+          git commit -m "feat: initialize WinlatorHUD v2.0.0 — Android View performance overlay" || echo "No changes to commit"
           git push
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build AAR
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          ./gradlew :winlator-hud:assembleRelease --no-daemon
+          ls -lh winlator-hud/build/outputs/aar/
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Rename and checksum
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cp winlator-hud/build/outputs/aar/winlator-hud-release.aar              winlator-hud/build/outputs/aar/WinlatorHUD-$VERSION.aar
+          sha256sum winlator-hud/build/outputs/aar/WinlatorHUD-$VERSION.aar >              winlator-hud/build/outputs/aar/WinlatorHUD-$VERSION.aar.sha256
+
+      - name: Generate release notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > release_notes.md << NOTES_EOF
+          ## WinlatorHUD v$VERSION
+
+          ### 集成方式
+
+          **AAR 依赖（推荐）**
+          1. 下载下方 WinlatorHUD-$VERSION.aar
+          2. 放入目标项目 app/libs/ 目录
+          3. app/build.gradle 添加: implementation files('libs/WinlatorHUD-$VERSION.aar')
+          4. XServerDisplayActivity.onCreate 调用 WinlatorHUD.init(this)
+          5. 渲染循环调用 WinlatorHUD.recordFrame()
+
+          **源码集成**
+          复制 WinlatorHUD.java 到目标项目 com.winlator.hud 包下。
+
+          ### 校验
+          SHA-256 见附件 .sha256 文件
+
+          ### 兼容性
+          Android API 24+ / Winlator 全版本 / Adreno 完全支持
+          NOTES_EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: WinlatorHUD v${{ steps.version.outputs.version }}
+          body_path: release_notes.md
+          files: |
+            winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar
+            winlator-hud/build/outputs/aar/WinlatorHUD-${{ steps.version.outputs.version }}.aar.sha256
