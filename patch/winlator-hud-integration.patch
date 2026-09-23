@@ -1,0 +1,25 @@
+diff --git a/app/src/main/java/com/winlator/cmod/XServerDisplayActivity.java b/app/src/main/java/com/winlator/cmod/XServerDisplayActivity.java
+--- a/app/src/main/java/com/winlator/cmod/XServerDisplayActivity.java
++++ b/app/src/main/java/com/winlator/cmod/XServerDisplayActivity.java
+@@ -20,6 +20,7 @@
++import com.winlator.hud.WinlatorHUD;
+@@ -150,6 +151,10 @@
+    private void init() {
+        setContentView(R.layout.xserver_display_activity);
++        // ===== WinlatorHUD 初始化 =====
++        WinlatorHUD.init(this);
++        // =============================
+    }
+@@ -200,6 +205,10 @@
+    protected void onDestroy() {
++        // ===== WinlatorHUD 释放 =====
++        WinlatorHUD.release();
++        // ===========================
+        super.onDestroy();
+    }
+diff --git a/app/src/main/java/com/winlator/hud/WinlatorHUD.java b/app/src/main/java/com/winlator/hud/WinlatorHUD.java
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/com/winlator/hud/WinlatorHUD.java
+@@ -0,0 +1,1593 @@
++// 请从本仓库的 winlator-hud/src/main/java/com/winlator/hud/WinlatorHUD.java 复制完整内容

@@ -1,0 +1,14 @@
+*.apk
+*.aar
+*.ap_
+*.aab
+*.dex
+*.class
+bin/ gen/ out/ release/
+.gradle/ build/
+local.properties
+*.log
+*.iml .idea/
+*.jks *.keystore
+.externalNativeBuild .cxx/
+.DS_Store Thumbs.db

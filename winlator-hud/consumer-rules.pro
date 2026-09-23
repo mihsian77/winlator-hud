@@ -1,0 +1,1 @@
+-keep public class com.winlator.hud.WinlatorHUD { *; }
