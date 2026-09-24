@@ -393,7 +393,7 @@ public final class WinlatorHUD {
                         m.batPercent + "% " +
                         (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
-                        (has(SHOW_BAT_TIME) && m.batTimeMin >= 0 ? " " + fmtTime(m.batTimeMin) : ""), C_BAT);
+                        (has(SHOW_BAT_TIME) && m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
                 if (has(SHOW_NETWORK) && m.netValid) {
                     x = drawHudItem(canvas, x, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM);
                 }
@@ -473,7 +473,7 @@ public final class WinlatorHUD {
                         m.batPercent + "% " +
                         (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
-                        (has(SHOW_BAT_TIME) && m.batTimeMin >= 0 ? " " + fmtTime(m.batTimeMin) : ""), C_BAT);
+                        (has(SHOW_BAT_TIME) && m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
                 if (has(SHOW_NETWORK) && m.netValid) {
                     y = drawVRow(canvas, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
                 }
@@ -523,7 +523,7 @@ public final class WinlatorHUD {
                         m.batPercent + "% " +
                         (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
-                        (m.batTimeMin >= 0 ? " " + fmtTime(m.batTimeMin) : ""), C_BAT);
+                        (m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
                 if (m.netValid) y = drawVRow(canvas, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
                 if (has(SHOW_REFRESH_RATE) && m.refreshRate > 0) {
                     y = drawVRow(canvas, y, "DISP", "@" + (int)m.refreshRate + "Hz", C_DIM, smallTextSize);
@@ -564,7 +564,7 @@ public final class WinlatorHUD {
             if (graphCount < 2) return;
             paint.setColor(C_GRAPH);
             paint.setStrokeWidth(1.5f);
-            float maxFps = Math.max(t.avgFps * 1.2f, 60);
+            float maxFps = (float) Math.max(t.avgFps * 1.2, 60.0);
             float stepX = w / Math.min(graphCount, graphData.length);
             float lastX = x, lastY = y + h;
             for (int i = 0; i < Math.min(graphCount, graphData.length); i++) {
@@ -1013,7 +1013,7 @@ public final class WinlatorHUD {
                     if (batTemp > 100) batTemp = batTemp / 10; // 单位 0.1°C
                     // 功率 = 电压 × 电流
                     int voltage = battery.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1); // mV
-                    int current = battery.getIntExtra(BatteryManager.EXTRA_CURRENT_NOW, 0); // μA
+                    int current = battery.getIntExtra("current_now", 0); // μA
                     if (voltage > 0) {
                         batPower = (voltage / 1000f) * (current / 1_000_000f); // V * A = W
                         if (batPower < 0) batPower = -batPower; // 放电时电流为负
