@@ -38,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-2.0.0.aar')
+    implementation files('libs/WinlatorHUD-3.0.0.aar')
 }
 ```
 
@@ -82,11 +82,11 @@ WinlatorHUD.setGameInfo("DXVK", "1920x1080", "Wine 9.0");
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v2.0.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.0.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v2.0.0
-git push origin v2.0.0
+git tag v3.0.0
+git push origin v3.0.0
 ```
 
 ## 兼容性
@@ -99,9 +99,9 @@ git push origin v2.0.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v2.0.x | 当前稳定版 | 双布局引擎 + 多厂商 GPU 发现 + 零 GC 渲染 |
-| v2.1.x | 规划中 | Mali 完整支持 + 自定义主题 |
-| v3.0.x | 规划中 | 性能报告导出（CSV/JSON）+ 磁盘 I/O 统计 |
+| v3.0.0 | 当前稳定版 | 已发布（2026-09-24） |
+| v2.1.0 | 历史版本 | 已发布（2026-09-24） |
+| v3.1.x | 规划中 | 自定义主题 / 性能报告导出（CSV/JSON）/ 磁盘 I/O 统计 |
 
 ## 许可证
 
