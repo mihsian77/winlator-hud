@@ -1,12 +1,19 @@
 /*
- * WinlatorHUD v3.0 — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.1 — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 3 级密度。
  *
+ * v3.1 变更：
+ *   - 配置持久化（密度/方向/位置自动保存到 SharedPreferences）
+ *   - setPresentedFps() 帧生成支持（区分游戏渲染FPS与实际显示FPS）
+ *   - buildDiagnosticsReport() / exportDiagnostics() 诊断导出
+ *   - 清理：移除未使用的 SHOW_THROTTLE / offsetY / sWM
+ *
  * 集成方式：
  *   WinlatorHUD.init(activity);
  *   渲染循环中调用 WinlatorHUD.recordFrame();
+ *   帧生成开启时调用 WinlatorHUD.setPresentedFps(displayFps);
  *   WinlatorHUD.setGameInfo(engineName, resolution, wineVersion);
  *   WinlatorHUD.release();
  *
@@ -18,6 +25,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -28,7 +36,6 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Process;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -41,12 +48,20 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FileReader;
+import java.io.FileWriter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 public final class WinlatorHUD {
+
+    private static final String PREFS_NAME = "winlator_hud_prefs";
+    private static final String KEY_DENSITY = "density";
+    private static final String KEY_ORIENTATION = "orientation";
+    private static final String KEY_OFFSET_X = "offset_x";
 
     // ==================== 显示元素位掩码 ====================
     public static final int SHOW_FPS          = 1 << 0;
@@ -72,7 +87,6 @@ public final class WinlatorHUD {
     public static final int SHOW_RESOLUTION   = 1 << 20;
     public static final int SHOW_WINE_VERSION = 1 << 21;
     public static final int SHOW_DURATION     = 1 << 22;
-    public static final int SHOW_THROTTLE     = 1 << 23;
     public static final int SHOW_BAT_TIME     = 1 << 24;
     public static final int SHOW_REFRESH_RATE = 1 << 25;
     public static final int SHOW_EXE_NAME     = 1 << 26;
@@ -87,7 +101,13 @@ public final class WinlatorHUD {
             | SHOW_RAM | SHOW_BATTERY | SHOW_BAT_POWER | SHOW_BAT_TIME
             | SHOW_ENGINE | SHOW_EXE_NAME | SHOW_DURATION;
 
-    public static final int SHOW_DETAILED = (1 << 27) - 1; // 全部开启
+    public static final int SHOW_DETAILED = SHOW_FPS | SHOW_FRAMETIME | SHOW_AVG_FPS
+            | SHOW_1PC_LOW | SHOW_01PC_LOW | SHOW_GRAPH
+            | SHOW_GPU_LOAD | SHOW_GPU_TEMP | SHOW_GPU_CLOCK | SHOW_VRAM
+            | SHOW_CPU_LOAD | SHOW_CPU_TEMP | SHOW_CPU_CLOCK | SHOW_CPU_CORES
+            | SHOW_RAM | SHOW_SWAP | SHOW_BATTERY | SHOW_BAT_POWER | SHOW_BAT_TIME
+            | SHOW_NETWORK | SHOW_ENGINE | SHOW_RESOLUTION | SHOW_WINE_VERSION
+            | SHOW_DURATION | SHOW_REFRESH_RATE | SHOW_EXE_NAME;
 
     // ==================== 密度模式 ====================
     public static final int DENSITY_COMPACT  = 0;
@@ -119,16 +139,19 @@ public final class WinlatorHUD {
 
     // ==================== 单例状态 ====================
     private static HUDView sView;
-    private static WindowManager sWM;
     private static FrameTracker sTracker;
     private static SystemMetrics sMetrics;
     private static HandlerThread sThread;
     private static Handler sHandler;
     private static boolean sRunning;
+    private static SharedPreferences sPrefs;
 
     private static String sEngine = "";
     private static String sResolution = "";
     private static String sWineVersion = "";
+
+    // 帧生成：实际到达屏幕的FPS（游戏渲染FPS由recordFrame统计）
+    private static volatile float sPresentedFps = 0f;
 
     private static final Runnable sTick = new Runnable() {
         @Override public void run() {
@@ -148,7 +171,18 @@ public final class WinlatorHUD {
 
     public static void init(Activity activity, int showMask, int density, int orientation) {
         if (sRunning) return;
-        sWM = (WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
+        sPrefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+        // 从持久化恢复配置（用户上次的选择优先于传入默认值）
+        int savedDensity = sPrefs.getInt(KEY_DENSITY, -1);
+        if (savedDensity >= DENSITY_COMPACT && savedDensity <= DENSITY_DETAILED) {
+            density = savedDensity;
+        }
+        int savedOrient = sPrefs.getInt(KEY_ORIENTATION, -1);
+        if (savedOrient == ORIENT_HORIZONTAL || savedOrient == ORIENT_VERTICAL) {
+            orientation = savedOrient;
+        }
+
         sTracker = new FrameTracker();
         sMetrics = new SystemMetrics(activity);
         sTracker.setMetrics(sMetrics);
@@ -157,6 +191,7 @@ public final class WinlatorHUD {
         sView.setShowMask(showMask);
         sView.setDensity(density);
         sView.setOrientation(orientation);
+        sView.restoreOffset(sPrefs.getInt(KEY_OFFSET_X, 0));
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -184,14 +219,65 @@ public final class WinlatorHUD {
         if (sTracker != null) sTracker.recordFrame();
     }
 
+    /**
+     * 设置实际到达屏幕的FPS（帧生成场景）。
+     * recordFrame() 统计的是游戏渲染FPS，当LSFG/帧生成开启时，
+     * 实际显示FPS会高于游戏渲染FPS。调用此方法传入显示FPS，
+     * HUD将优先显示实际到达屏幕的数值。
+     *
+     * @param fps 实际显示FPS，传0或负数表示不使用帧生成模式
+     */
+    public static void setPresentedFps(float fps) {
+        sPresentedFps = fps > 0 ? fps : 0f;
+    }
+
     public static void setGameInfo(String engine, String resolution, String wineVersion) {
         sEngine = engine != null ? engine : "";
         sResolution = resolution != null ? resolution : "";
         sWineVersion = wineVersion != null ? wineVersion : "";
     }
 
+    /**
+     * 生成HUD诊断报告文本，包含设备信息、GPU/CPU/温度/电池/内存的
+     * sysfs路径探测结果。用于排查"指标读不到"的问题。
+     */
+    public static String buildDiagnosticsReport(Context context) {
+        SystemMetrics m = new SystemMetrics(context);
+        m.update();
+        return m.buildDiagnosticsReport(context);
+    }
+
+    /**
+     * 将诊断报告保存到应用专属Files目录，返回File对象。
+     * 文件名格式：winlator-hud-diag-YYYYMMDD_HHmmss.txt
+     */
+    public static File exportDiagnostics(Context context) {
+        String report = buildDiagnosticsReport(context);
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        File dir = context.getExternalFilesDir(null);
+        if (dir == null) dir = context.getFilesDir();
+        File out = new File(dir, "winlator-hud-diag-" + ts + ".txt");
+        try {
+            FileWriter w = new FileWriter(out);
+            w.write(report);
+            w.close();
+        } catch (Exception e) {
+            return null;
+        }
+        return out;
+    }
+
     public static void release() {
+        // 保存配置
+        if (sPrefs != null && sView != null) {
+            SharedPreferences.Editor ed = sPrefs.edit();
+            ed.putInt(KEY_DENSITY, sView.getDensity());
+            ed.putInt(KEY_ORIENTATION, sView.getOrientation());
+            ed.putInt(KEY_OFFSET_X, sView.getOffsetX());
+            ed.apply();
+        }
         sRunning = false;
+        sPresentedFps = 0f;
         if (sHandler != null) { sHandler.removeCallbacks(sTick); sHandler = null; }
         if (sThread != null) { sThread.quitSafely(); sThread = null; }
         if (sView != null && sView.getParent() != null) {
@@ -200,7 +286,7 @@ public final class WinlatorHUD {
         sView = null;
         sTracker = null;
         sMetrics = null;
-        sWM = null;
+        sPrefs = null;
     }
 
     // ==================== HUD View ====================
@@ -234,7 +320,7 @@ public final class WinlatorHUD {
         private float downX, downY;
         private long downTime;
         private boolean dragging;
-        private float offsetX, offsetY;
+        private float offsetX;
         private long lastClickTime;
         private static final long CLICK_TIMEOUT = 250;
         private static final long LONG_PRESS = 3500;
@@ -259,8 +345,22 @@ public final class WinlatorHUD {
         private int sp(int v) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, getResources().getDisplayMetrics()); }
 
         void setShowMask(int mask) { this.showMask = mask; requestLayout(); invalidate(); }
-        void setDensity(int d) { this.density = Math.max(DENSITY_COMPACT, Math.min(DENSITY_DETAILED, d)); requestLayout(); invalidate(); }
-        void setOrientation(int o) { this.orientation = o; requestLayout(); invalidate(); }
+        void setDensity(int d) { this.density = Math.max(DENSITY_COMPACT, Math.min(DENSITY_DETAILED, d)); requestLayout(); invalidate(); savePrefs(); }
+        void setOrientation(int o) { this.orientation = o; requestLayout(); invalidate(); savePrefs(); }
+        void restoreOffset(int x) { this.offsetX = x; invalidate(); }
+        int getDensity() { return density; }
+        int getOrientation() { return orientation; }
+        int getOffsetX() { return (int)offsetX; }
+
+        private void savePrefs() {
+            if (sPrefs != null) {
+                SharedPreferences.Editor ed = sPrefs.edit();
+                ed.putInt(KEY_DENSITY, density);
+                ed.putInt(KEY_ORIENTATION, orientation);
+                ed.putInt(KEY_OFFSET_X, (int)offsetX);
+                ed.apply();
+            }
+        }
 
         private boolean has(int flag) { return (showMask & flag) != 0; }
 
@@ -272,6 +372,20 @@ public final class WinlatorHUD {
 
         private int tempColor(int temp) {
             return temp >= 80 ? C_TEMP_HOT : C_TEXT;
+        }
+
+        /** 获取当前应显示的FPS值（帧生成时优先显示实际到达屏幕的FPS） */
+        private double displayFps(FrameTracker t) {
+            return sPresentedFps > 0 ? sPresentedFps : t.fps;
+        }
+
+        /** FPS显示文本：帧生成时显示"显示FPS (游戏FPS)" */
+        private String fpsText(FrameTracker t, boolean detailed) {
+            double disp = displayFps(t);
+            if (detailed && sPresentedFps > 0 && Math.abs(sPresentedFps - t.fps) > 1.5) {
+                return fmt(disp) + " (" + fmt(t.fps) + ")";
+            }
+            return fmt(disp);
         }
 
         @Override
@@ -339,14 +453,14 @@ public final class WinlatorHUD {
 
             if (density == DENSITY_COMPACT) {
                 // L1: FPS GPU CPU RAM BAT
-                x = drawHudItem(canvas, x, y, "FPS", fmt(t.fps), fpsColor(t.fps), fpsTextSize);
+                x = drawHudItem(canvas, x, y, "FPS", fpsText(t, false), fpsColor(displayFps(t)), fpsTextSize);
                 x = drawHudItem(canvas, x, y, "GPU", m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-", C_GPU);
                 x = drawHudItem(canvas, x, y, "CPU", m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-", C_CPU);
                 x = drawHudItem(canvas, x, y, "RAM", m.ramPercent + "%", C_RAM);
                 x = drawHudItem(canvas, x, y, "BAT", m.batPercent + "%", C_BAT);
             } else if (density == DENSITY_NORMAL) {
                 // L2: FPS+ms GPU全 CPU全 RAM BAT+W 1%
-                x = drawHudItem(canvas, x, y, "FPS", fmt(t.fps) + " " + fmt1(t.frameTime) + "ms", fpsColor(t.fps), fpsTextSize);
+                x = drawHudItem(canvas, x, y, "FPS", fpsText(t, true) + " " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
                 x = drawHudItem(canvas, x, y, "GPU",
                         (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " +
                         (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " +
@@ -366,7 +480,7 @@ public final class WinlatorHUD {
                 // 行1: FPS+ms AVG 1% 0.1% + 波形图
                 paint.setTextSize(textSize);
                 x = 0;
-                x = drawHudItem(canvas, x, y, "FPS", fmt(t.fps) + " " + fmt1(t.frameTime) + "ms", fpsColor(t.fps), fpsTextSize);
+                x = drawHudItem(canvas, x, y, "FPS", fpsText(t, true) + " " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
                 x = drawHudItem(canvas, x, y, "AVG", fmt(t.avgFps), C_DIM);
                 x = drawHudItem(canvas, x, y, "1%", fmt(t.low1), C_DIM);
                 x = drawHudItem(canvas, x, y, "0.1%", fmt(t.low01), C_DIM);
@@ -435,14 +549,14 @@ public final class WinlatorHUD {
 
             if (density == DENSITY_COMPACT) {
                 // L1: FPS GPU CPU RAM BAT
-                y = drawVRow(canvas, y, "FPS", fmt(t.fps), fpsColor(t.fps), fpsTextSize);
+                y = drawVRow(canvas, y, "FPS", fpsText(t, false), fpsColor(displayFps(t)), fpsTextSize);
                 y = drawVRow(canvas, y, "GPU", (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " + (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " + (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), C_GPU);
                 y = drawVRow(canvas, y, "CPU", (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " + (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " + (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
                 y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", C_RAM);
                 y = drawVRow(canvas, y, "BAT", m.batPercent + "% " + (m.batTemp >= 0 ? m.batTemp + "°C" : "-"), C_BAT);
             } else if (density == DENSITY_NORMAL) {
                 // L2 标准
-                y = drawVRow(canvas, y, "FPS", fmt(t.fps) + "  " + fmt1(t.frameTime) + "ms", fpsColor(t.fps), fpsTextSize);
+                y = drawVRow(canvas, y, "FPS", fpsText(t, true) + "  " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
                 if (has(SHOW_GRAPH)) {
                     drawGraph(canvas, 0, y, 140 * dp, graphH, t);
                     y += graphH + 2;
@@ -488,7 +602,7 @@ public final class WinlatorHUD {
                 }
             } else {
                 // L3 详细
-                y = drawVRow(canvas, y, "FPS", fmt(t.fps) + "  " + fmt1(t.frameTime) + "ms", fpsColor(t.fps), fpsTextSize);
+                y = drawVRow(canvas, y, "FPS", fpsText(t, true) + "  " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
                 if (has(SHOW_GRAPH)) {
                     drawGraph(canvas, 0, y, 160 * dp, graphH, t);
                     y += graphH + 2;
@@ -602,7 +716,6 @@ public final class WinlatorHUD {
                     }
                     if (dragging) {
                         offsetX += ev.getRawX() - downX;
-                        offsetY += ev.getRawY() - downY;
                         downX = ev.getRawX();
                         downY = ev.getRawY();
                         invalidate();
@@ -623,6 +736,9 @@ public final class WinlatorHUD {
                         }
                     } else if (!dragging && dt >= LONG_PRESS) {
                         locked = true;
+                    } else if (dragging) {
+                        // 拖拽结束，保存位置
+                        savePrefs();
                     }
                     return true;
             }
@@ -1120,6 +1236,122 @@ public final class WinlatorHUD {
                 }
             } catch (Exception e) { /* ignore */ }
             return -1;
+        }
+
+        // ==================== 诊断报告 ====================
+        String buildDiagnosticsReport(Context ctx) {
+            StringBuilder r = new StringBuilder(4096);
+            String nl = "\n";
+            r.append("=== WinlatorHUD 诊断报告 ===").append(nl);
+            r.append("生成时间: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date())).append(nl);
+            r.append("设备型号: ").append(Build.MODEL).append(" (").append(Build.MANUFACTURER).append(")").append(nl);
+            r.append("Android版本: ").append(Build.VERSION.RELEASE).append(" (SDK ").append(Build.VERSION.SDK_INT).append(")").append(nl);
+            r.append("CPU核心数: ").append(coreCount).append(nl);
+            r.append("屏幕刷新率: ").append(refreshRate > 0 ? ((int)refreshRate + " Hz") : "未知").append(nl);
+            r.append(nl);
+
+            // GPU
+            r.append("--- GPU 探测 ---").append(nl);
+            String[] gpuLoadCandidates = {
+                "/sys/class/kgsl/kgsl-3d0/gpubusy",
+                "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
+                "/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load",
+                "/sys/class/kgsl/kgsl-3d0/load",
+                "/sys/kernel/gpu/gpu_busy",
+                "/sys/kernel/gpu/gpu_busy_percent",
+                "/sys/devices/platform/gpusysfs/gpu_busy",
+            };
+            r.append("GPU使用率路径:").append(nl);
+            for (String p : gpuLoadCandidates) {
+                File f = new File(p);
+                if (f.exists()) {
+                    String val = f.canRead() ? readFirstLine(p) : "存在但不可读";
+                    r.append("  [可读] ").append(p).append(" = ").append(val != null ? val.trim() : "?").append(nl);
+                }
+            }
+            if (gpuLoadPaths != null) for (String p : gpuLoadPaths) {
+                r.append("  [devfreq] ").append(p).append(nl);
+            }
+            r.append("当前GPU使用率: ").append(gpuLoad >= 0 ? gpuLoad + "%" : "读取失败(-1)").append(nl);
+            r.append("当前GPU频率: ").append(gpuClock >= 0 ? gpuClock + " MHz" : "读取失败(-1)").append(nl);
+            r.append("当前GPU温度: ").append(gpuTemp >= 0 ? gpuTemp + "°C" : "读取失败(-1)").append(nl);
+            r.append("当前VRAM: ").append(vramGib >= 0 ? fmt1(vramGib) + " GiB" : "读取失败(-1)").append(nl);
+            r.append(nl);
+
+            // CPU
+            r.append("--- CPU 探测 ---").append(nl);
+            File procStat = new File("/proc/stat");
+            r.append("/proc/stat: ").append(procStat.exists() ? (procStat.canRead() ? "存在且可读" : "存在但不可读(Android 7.0+限制)") : "不存在").append(nl);
+            r.append("CPU使用率方式: ").append(cpuWarmed ? "/proc/stat差分" : (maxClockReady ? "频率归一化回退" : "未就绪")).append(nl);
+            r.append("当前CPU使用率: ").append(cpuLoad >= 0 ? cpuLoad + "%" : "读取失败(-1)").append(nl);
+            r.append("当前CPU温度: ").append(cpuTemp >= 0 ? cpuTemp + "°C" : "读取失败(-1)").append(nl);
+            r.append("各核心频率:").append(nl);
+            for (int i = 0; i < coreCount; i++) {
+                r.append("  cpu").append(i).append(": ")
+                 .append(coreClock[i] > 0 ? coreClock[i] + " MHz" : "读取失败")
+                 .append(" (max: ").append(maxCoreClock[i] > 0 ? maxCoreClock[i] + " MHz" : "未知").append(")").append(nl);
+            }
+            r.append(nl);
+
+            // 温度
+            r.append("--- 温度探测 ---").append(nl);
+            try {
+                File dir = new File("/sys/class/thermal");
+                if (dir.isDirectory()) {
+                    File[] zones = dir.listFiles(new FileFilter() {
+                        @Override public boolean accept(File f) { return f.getName().startsWith("thermal_zone"); }
+                    });
+                    if (zones != null) {
+                        for (File z : zones) {
+                            String type = readFirstLine(z.getAbsolutePath() + "/type");
+                            int temp = (int) readLong(z.getAbsolutePath() + "/temp");
+                            if (temp > 1000) temp /= 1000;
+                            r.append("  ").append(z.getName()).append(": type=")
+                             .append(type != null ? type.trim() : "?")
+                             .append(", temp=").append(temp).append("°C").append(nl);
+                        }
+                    }
+                }
+            } catch (Exception e) { r.append("  无法枚举thermal_zone").append(nl); }
+            r.append(nl);
+
+            // 电池
+            r.append("--- 电池 ---").append(nl);
+            r.append("电量: ").append(batPercent).append("%").append(nl);
+            r.append("温度: ").append(batTemp >= 0 ? batTemp + "°C" : "读取失败").append(nl);
+            r.append("功率: ").append(batPower >= 0 ? fmt1(batPower) + " W" : "读取失败").append(nl);
+            r.append("剩余时间: ").append(batTimeMin >= 0 ? fmtTime((int)batTimeMin) : "估算中或充电中").append(nl);
+            r.append(nl);
+
+            // 内存
+            r.append("--- 内存 ---").append(nl);
+            r.append("已用: ").append(fmt1(ramGib)).append(" GiB (").append(ramPercent).append("%)").append(nl);
+            r.append("Swap: ").append(swapGib >= 0 ? fmt1(swapGib) + " GiB" : "读取失败").append(nl);
+            r.append(nl);
+
+            // 网络
+            r.append("--- 网络 ---").append(nl);
+            r.append("状态: ").append(netValid ? "正常" : "未就绪或无流量").append(nl);
+            if (netValid) {
+                r.append("下载: ").append(fmt1(netDownKB)).append(" KB/s").append(nl);
+                r.append("上传: ").append(fmt1(netUpKB)).append(" KB/s").append(nl);
+            }
+            r.append(nl);
+
+            // 进程
+            r.append("--- 进程 ---").append(nl);
+            r.append("EXE名称: ").append(exeName.isEmpty() ? "未检测到wine/box64进程" : exeName).append(nl);
+            r.append("引擎信息: ").append(sEngine.isEmpty() ? "未设置(setGameInfo)" : sEngine).append(nl);
+            r.append("Wine版本: ").append(sWineVersion.isEmpty() ? "未设置" : sWineVersion).append(nl);
+            r.append(nl);
+
+            // 帧生成
+            r.append("--- 帧生成 ---").append(nl);
+            r.append("presentedFps: ").append(sPresentedFps > 0 ? sPresentedFps + " (帧生成模式)" : "未设置(禁用)").append(nl);
+            r.append(nl);
+
+            r.append("=== 报告结束 ===").append(nl);
+            return r.toString();
         }
 
         // ---- 文件读取工具 ----
