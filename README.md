@@ -38,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-3.0.0.aar')
+    implementation files('libs/WinlatorHUD-3.1.0.aar')
 }
 ```
 
@@ -57,7 +57,20 @@ WinlatorHUD.recordFrame();
 
 // 可选：设置容器信息
 WinlatorHUD.setGameInfo("DXVK", "1920x1080", "Wine 9.0");
+
+// v3.1+ 帧生成支持（LSFG / FSR FG 开启时调用）
+// recordFrame() 统计游戏渲染FPS，setPresentedFps() 传入实际显示FPS
+WinlatorHUD.setPresentedFps(displayFps);
+
+// v3.1+ 诊断导出（排查"指标读不到"时使用）
+File diag = WinlatorHUD.exportDiagnostics(context);
+// 或直接获取报告文本
+String report = WinlatorHUD.buildDiagnosticsReport(context);
 ```
+
+### 配置持久化（v3.1+）
+
+密度模式、横/竖方向、拖拽位置自动保存到 `SharedPreferences`（`winlator_hud_prefs`），下次启动自动恢复。无需额外调用。
 
 ## 监控指标（24 项）
 
@@ -82,11 +95,11 @@ WinlatorHUD.setGameInfo("DXVK", "1920x1080", "Wine 9.0");
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.0.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.1.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.0.0
-git push origin v3.0.0
+git tag v3.1.0
+git push origin v3.1.0
 ```
 
 ## 兼容性
@@ -99,9 +112,10 @@ git push origin v3.0.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.0.0 | 当前稳定版 | 已发布（2026-09-24） |
+| v3.1.0 | 当前稳定版 | 配置持久化 / presentedFps 帧生成支持 / 诊断导出 / 清理无用代码 |
+| v3.0.0 | 历史版本 | 横向顶部横条 + 竖向紧凑面板 / GPU devfreq 通用探测 / CPU 频率归一化回退 |
 | v2.1.0 | 历史版本 | 已发布（2026-09-24） |
-| v3.1.x | 规划中 | 自定义主题 / 性能报告导出（CSV/JSON）/ 磁盘 I/O 统计 |
+| v3.2.x | 规划中 | 自定义主题 / 性能报告导出（CSV/JSON）/ 磁盘 I/O 统计 |
 
 ## 许可证
 
