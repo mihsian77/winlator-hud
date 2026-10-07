@@ -1,27 +1,31 @@
 /*
- * WinlatorHUD v3.2 — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.3 — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 4 级密度（精简/标准/详细/MEGA）。
  *
- * v3.2 变更（参考 The412Banner/FusionHUD 设计思路，独立实现）：
- *   - 新增 MEGA 超详细密度级（每核心/Swap/网络/分辨率/Wine-DX版本/刷新率）
- *   - 锁定徽章动画（长按锁定时 padlock 图标淡入→保持→淡出）
- *   - 可配置背景透明度与描边强度（init 参数 + SharedPreferences 持久化）
- *   - Mali GPU 路径探测补充
- *   - 温度 zone 优先级排序（cpu-silicon > cpu-0 > cpu > soc > tsens > cluster）
- *   - 长按锁定时间从 3.5s 缩短至 1.5s
+ * v3.3 变更：
+ *   - CSV/JSON 性能记录导出（startRecording/stopRecording/exportRecording）
+ *   - 记录 17 项指标时间序列：FPS/帧时间/1%low/0.1%low/presentedFps/GPU/CPU/内存/电池
+ *   - 默认 1 秒采样间隔，可配置；记录在 IO 线程，零渲染开销
+ *
+ * v3.2 变更：
+ *   - MEGA 超详细密度级 / 锁定徽章动画 / 可配置背景透明度与描边
+ *   - Mali GPU 支持 / 温度优先级排序 / 长按1.5s锁定
  *
  * v3.1 变更：
- *   - 配置持久化（密度/方向/位置自动保存到 SharedPreferences）
- *   - setPresentedFps() 帧生成支持
- *   - buildDiagnosticsReport() / exportDiagnostics() 诊断导出
+ *   - 配置持久化 / setPresentedFps() 帧生成 / 诊断导出
  *
  * 集成方式：
  *   WinlatorHUD.init(activity);
  *   渲染循环中调用 WinlatorHUD.recordFrame();
  *   帧生成开启时调用 WinlatorHUD.setPresentedFps(displayFps);
  *   WinlatorHUD.setGameInfo(engineName, resolution, wineVersion);
+ *   // 性能记录（v3.3+）
+ *   WinlatorHUD.startRecording();
+ *   // ... 游戏运行 ...
+ *   File csv = WinlatorHUD.exportRecordingCSV(context);
+ *   WinlatorHUD.stopRecording();
  *   WinlatorHUD.release();
  *
  * 手势：单击循环密度，双击切换横/竖，拖拽移动，长按1.5s锁定。
@@ -173,11 +177,24 @@ public final class WinlatorHUD {
 
     private static volatile float sPresentedFps = 0f;
 
+    // v3.3: 性能记录
+    private static RecordingSession sRecording;
+    private static long sRecordIntervalMs = 1000;
+    private static long sLastRecordTime = 0;
+
     private static final Runnable sTick = new Runnable() {
         @Override public void run() {
             if (sRunning && sMetrics != null) {
                 sMetrics.update();
                 if (sView != null) sView.postInvalidate();
+                // v3.3: 性能记录采样（IO 线程，零渲染开销）
+                if (sRecording != null && sRecording.isActive()) {
+                    long now = SystemClock.uptimeMillis();
+                    if (now - sLastRecordTime >= sRecordIntervalMs) {
+                        sRecording.addPoint(sTracker, sMetrics, sPresentedFps);
+                        sLastRecordTime = now;
+                    }
+                }
             }
             if (sHandler != null) sHandler.postDelayed(this, 500);
         }
@@ -265,6 +282,89 @@ public final class WinlatorHUD {
         if (sView != null) sView.setOutlineIntensity(intensity);
     }
 
+    // ==================== v3.3 性能记录 ====================
+
+    /**
+     * 开始性能记录。清空之前的记录数据，从当前时刻开始采样。
+     * 默认采样间隔 1 秒，可通过 setRecordInterval() 调整。
+     * 记录在 IO 线程执行，不影响渲染性能。
+     */
+    public static void startRecording() {
+        sRecording = new RecordingSession();
+        sLastRecordTime = 0;
+    }
+
+    /**
+     * 停止性能记录。记录数据保留，可继续导出。
+     * 再次调用 startRecording() 会清空并重新开始。
+     */
+    public static void stopRecording() {
+        if (sRecording != null) sRecording.stop();
+    }
+
+    /** 是否正在记录 */
+    public static boolean isRecording() {
+        return sRecording != null && sRecording.isActive();
+    }
+
+    /** 已记录的数据点数量 */
+    public static int getRecordingPointCount() {
+        return sRecording != null ? sRecording.getPointCount() : 0;
+    }
+
+    /** 记录持续时间（毫秒） */
+    public static long getRecordingDurationMs() {
+        return sRecording != null ? sRecording.getDurationMs() : 0;
+    }
+
+    /**
+     * 设置记录采样间隔（毫秒），默认 1000ms。
+     * 最小 200ms（受 HUD 500ms 刷新周期限制，实际最小约 500ms）。
+     */
+    public static void setRecordInterval(long intervalMs) {
+        sRecordIntervalMs = Math.max(200, intervalMs);
+    }
+
+    /**
+     * 导出记录为 CSV 文件，保存到应用专属 Files 目录。
+     * 文件名格式：winlator-hud-record-YYYYMMDD_HHmmss.csv
+     * @return 导出的文件，失败返回 null
+     */
+    public static File exportRecordingCSV(Context context) {
+        if (sRecording == null || sRecording.getPointCount() == 0) return null;
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        File dir = context.getExternalFilesDir(null);
+        if (dir == null) dir = context.getFilesDir();
+        File out = new File(dir, "winlator-hud-record-" + ts + ".csv");
+        return sRecording.exportCSV(out) ? out : null;
+    }
+
+    /**
+     * 导出记录为 JSON 文件，保存到应用专属 Files 目录。
+     * 文件名格式：winlator-hud-record-YYYYMMDD_HHmmss.json
+     * @return 导出的文件，失败返回 null
+     */
+    public static File exportRecordingJSON(Context context) {
+        if (sRecording == null || sRecording.getPointCount() == 0) return null;
+        String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        File dir = context.getExternalFilesDir(null);
+        if (dir == null) dir = context.getFilesDir();
+        File out = new File(dir, "winlator-hud-record-" + ts + ".json");
+        return sRecording.exportJSON(out) ? out : null;
+    }
+
+    /**
+     * 导出记录到指定文件（CSV 或 JSON，由文件扩展名决定）。
+     * @param file 目标文件，扩展名必须是 .csv 或 .json
+     * @return 是否成功
+     */
+    public static boolean exportRecording(File file) {
+        if (sRecording == null || sRecording.getPointCount() == 0) return false;
+        String name = file.getName().toLowerCase();
+        if (name.endsWith(".json")) return sRecording.exportJSON(file);
+        return sRecording.exportCSV(file);
+    }
+
     public static String buildDiagnosticsReport(Context context) {
         SystemMetrics m = new SystemMetrics(context);
         m.update();
@@ -299,6 +399,7 @@ public final class WinlatorHUD {
         }
         sRunning = false;
         sPresentedFps = 0f;
+        if (sRecording != null) { sRecording.stop(); sRecording = null; }
         if (sHandler != null) { sHandler.removeCallbacks(sTick); sHandler = null; }
         if (sThread != null) { sThread.quitSafely(); sThread = null; }
         if (sView != null && sView.getParent() != null) {
@@ -1478,6 +1579,154 @@ public final class WinlatorHUD {
                 if (line != null) return Long.parseLong(line.trim());
             } catch (Exception e) { /* ignore */ }
             return -1;
+        }
+    }
+
+    // ==================== v3.3 性能记录会话 ====================
+
+    /**
+     * 性能记录会话。在 IO 线程采样，存储 17 项指标的时间序列，
+     * 支持导出为 CSV（Excel/Origin 可直接打开）或 JSON。
+     * 每个数据点用 float[] 存储，timestamp 存在 [0]，毫秒精度。
+     */
+    private static final class RecordingSession {
+        private static final int COL_COUNT = 18;
+        private static final String[] COLUMNS = {
+            "timestamp_ms", "fps", "frame_time_ms", "avg_fps",
+            "low_1pct", "low_01pct", "presented_fps",
+            "gpu_load", "gpu_temp", "gpu_clock_mhz",
+            "cpu_load", "cpu_temp", "cpu_clock_mhz",
+            "ram_percent", "ram_gib", "bat_percent", "bat_power_w",
+            "session_elapsed_s"
+        };
+
+        private final List<float[]> points = new ArrayList<>(1024);
+        private volatile boolean active = true;
+        private final long startTimeMs = SystemClock.uptimeMillis();
+        private long endTimeMs = 0;
+
+        boolean isActive() { return active; }
+        void stop() { active = false; endTimeMs = SystemClock.uptimeMillis(); }
+        int getPointCount() { return points.size(); }
+
+        long getDurationMs() {
+            long end = endTimeMs > 0 ? endTimeMs : SystemClock.uptimeMillis();
+            return end - startTimeMs;
+        }
+
+        /** 从当前帧追踪器和系统指标采集一个数据点 */
+        void addPoint(FrameTracker tracker, SystemMetrics metrics, float presentedFps) {
+            if (!active || tracker == null || metrics == null) return;
+            float[] p = new float[COL_COUNT];
+            long now = SystemClock.uptimeMillis();
+            p[0] = (float)(now - startTimeMs); // 相对时间戳（毫秒）
+            p[1] = (float) tracker.fps;
+            p[2] = (float) tracker.frameTime;
+            p[3] = (float) tracker.avgFps;
+            p[4] = (float) tracker.low1;
+            p[5] = (float) tracker.low01;
+            p[6] = presentedFps;
+            p[7] = metrics.gpuLoad;
+            p[8] = metrics.gpuTemp;
+            p[9] = metrics.gpuClock;
+            p[10] = metrics.cpuLoad;
+            p[11] = metrics.cpuTemp;
+            p[12] = metrics.cpuClock;
+            p[13] = metrics.ramPercent;
+            p[14] = metrics.ramGib;
+            p[15] = metrics.batPercent;
+            p[16] = metrics.batPower;
+            p[17] = (float)((now - startTimeMs) / 1000.0); // 会话经过秒数
+            points.add(p);
+        }
+
+        /** 导出为 CSV，第一行为列名 */
+        boolean exportCSV(File file) {
+            if (points.isEmpty()) return false;
+            try {
+                FileWriter w = new FileWriter(file);
+                // 表头
+                StringBuilder sb = new StringBuilder(256);
+                for (int i = 0; i < COL_COUNT; i++) {
+                    if (i > 0) sb.append(',');
+                    sb.append(COLUMNS[i]);
+                }
+                sb.append('\n');
+                w.write(sb.toString());
+                // 数据行
+                for (float[] p : points) {
+                    sb.setLength(0);
+                    for (int i = 0; i < COL_COUNT; i++) {
+                        if (i > 0) sb.append(',');
+                        float v = p[i];
+                        if (v < 0) {
+                            sb.append("NA"); // 不可用值标记为 NA，Excel 可识别
+                        } else if (i == 0 || i == 17) {
+                            sb.append((long) v); // 时间戳用整数
+                        } else if (v == (long) v && v < 10000) {
+                            sb.append((long) v); // 整数值不写小数
+                        } else {
+                            sb.append(String.format(Locale.US, "%.2f", v));
+                        }
+                    }
+                    sb.append('\n');
+                    w.write(sb.toString());
+                }
+                w.close();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** 导出为 JSON，包含元信息和数据数组 */
+        boolean exportJSON(File file) {
+            if (points.isEmpty()) return false;
+            try {
+                FileWriter w = new FileWriter(file);
+                StringBuilder sb = new StringBuilder(points.size() * 128 + 512);
+                sb.append("{\n");
+                sb.append("  \"version\": \"3.3\",\n");
+                sb.append("  \"format\": \"WinlatorHUD recording\",\n");
+                sb.append("  \"start_time_ms\": ").append(startTimeMs).append(",\n");
+                sb.append("  \"end_time_ms\": ").append(endTimeMs > 0 ? endTimeMs : SystemClock.uptimeMillis()).append(",\n");
+                sb.append("  \"duration_ms\": ").append(getDurationMs()).append(",\n");
+                sb.append("  \"point_count\": ").append(points.size()).append(",\n");
+                sb.append("  \"columns\": [");
+                for (int i = 0; i < COL_COUNT; i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append('"').append(COLUMNS[i]).append('"');
+                }
+                sb.append("],\n");
+                sb.append("  \"data\": [\n");
+                for (int pi = 0; pi < points.size(); pi++) {
+                    float[] p = points.get(pi);
+                    sb.append("    [");
+                    for (int i = 0; i < COL_COUNT; i++) {
+                        if (i > 0) sb.append(", ");
+                        float v = p[i];
+                        if (v < 0) {
+                            sb.append("null");
+                        } else if (i == 0 || i == 17) {
+                            sb.append((long) v);
+                        } else if (v == (long) v && v < 10000) {
+                            sb.append((long) v);
+                        } else {
+                            sb.append(String.format(Locale.US, "%.2f", v));
+                        }
+                    }
+                    sb.append(']');
+                    if (pi < points.size() - 1) sb.append(',');
+                    sb.append('\n');
+                }
+                sb.append("  ]\n");
+                sb.append("}\n");
+                w.write(sb.toString());
+                w.close();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
         }
     }
 }
