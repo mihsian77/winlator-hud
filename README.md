@@ -86,6 +86,10 @@ WinlatorHUD.stopRecording();
 
 密度模式、横/竖方向、拖拽位置自动保存到 `SharedPreferences`（`winlator_hud_prefs`），下次启动自动恢复。无需额外调用。
 
+### 多 Fork 接入指南（v3.4+）
+
+集成到官方 / Bionic / glibc / Ludashi / GameNative / WinNative 的精确接入点、recordFrame 调用方式、已有 HUD 共存方案，详见 [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md)。
+
 ## 监控指标（24 项）
 
 | 分类 | 指标 |
@@ -127,10 +131,10 @@ git push origin v3.3.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.3.0 | 当前稳定版 | CSV/JSON 性能记录导出（17项指标时间序列，默认1秒采样，IO线程零渲染开销） |
-| v3.2.0 | 历史版本 | MEGA 密度级 / 锁定徽章动画 / 可配置背景透明度与描边 / Mali GPU / 温度优先级排序 |
-| v3.1.0 | 历史版本 | 配置持久化 / presentedFps 帧生成 / 诊断导出 |
-| v3.4.x | 规划中 | 多 fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative 精确接入点） |
+| v3.4.0 | 当前稳定版 | 多 Fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative 精确接入点 + 已有HUD共存方案） |
+| v3.3.0 | 历史版本 | CSV/JSON 性能记录导出（17项指标时间序列） |
+| v3.2.0 | 历史版本 | MEGA 密度级 / 锁定徽章动画 / 可配置外观 / Mali GPU / 温度优先级排序 |
+| v3.5.x | 规划中 | 自定义主题配色 / 磁盘 I/O 统计 / 帧时间直方图 |
 
 ## 许可证
 
