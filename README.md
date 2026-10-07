@@ -38,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-3.1.0.aar')
+    implementation files('libs/WinlatorHUD-3.2.0.aar')
 }
 ```
 
@@ -61,6 +61,13 @@ WinlatorHUD.setGameInfo("DXVK", "1920x1080", "Wine 9.0");
 // v3.1+ 帧生成支持（LSFG / FSR FG 开启时调用）
 // recordFrame() 统计游戏渲染FPS，setPresentedFps() 传入实际显示FPS
 WinlatorHUD.setPresentedFps(displayFps);
+
+// v3.2+ DX 版本（MEGA 模式显示）
+WinlatorHUD.setDxVersion("DX11");
+
+// v3.2+ 可配置外观（可选，默认已持久化）
+WinlatorHUD.setBgAlpha(0xCC);       // 背景透明度 0-255
+WinlatorHUD.setOutlineIntensity(0.4f); // 描边强度 0-1
 
 // v3.1+ 诊断导出（排查"指标读不到"时使用）
 File diag = WinlatorHUD.exportDiagnostics(context);
@@ -88,18 +95,19 @@ String report = WinlatorHUD.buildDiagnosticsReport(context);
 |------|------|------|
 | 精简 | 单击 | FPS + GPU + CPU + RAM |
 | 标准 | 单击 | 默认 14 项核心指标 |
-| 详细 | 单击 | 全部 24 项 |
+| 详细 | 单击 | 全部 24 项 + 每核心频率 |
+| MEGA | 单击 | v3.2+ 超详细：全部指标 + DX 版本 + 刷新率 |
 
 ## 构建与发布
 
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.1.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.2.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.1.0
-git push origin v3.1.0
+git tag v3.2.0
+git push origin v3.2.0
 ```
 
 ## 兼容性
@@ -112,10 +120,10 @@ git push origin v3.1.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.1.0 | 当前稳定版 | 配置持久化 / presentedFps 帧生成支持 / 诊断导出 / 清理无用代码 |
-| v3.0.0 | 历史版本 | 横向顶部横条 + 竖向紧凑面板 / GPU devfreq 通用探测 / CPU 频率归一化回退 |
-| v2.1.0 | 历史版本 | 已发布（2026-09-24） |
-| v3.2.x | 规划中 | 自定义主题 / 性能报告导出（CSV/JSON）/ 磁盘 I/O 统计 |
+| v3.2.0 | 当前稳定版 | MEGA 密度级 / 锁定徽章动画 / 可配置背景透明度与描边 / Mali GPU 支持 / 温度优先级排序 / 长按1.5s锁定 |
+| v3.1.0 | 历史版本 | 配置持久化 / presentedFps 帧生成 / 诊断导出 |
+| v3.0.0 | 历史版本 | 横向顶部横条 + 竖向紧凑面板 |
+| v3.3.x | 规划中 | 自定义主题 / 性能报告导出（CSV/JSON）/ 磁盘 I/O 统计 |
 
 ## 许可证
 
