@@ -1,8 +1,13 @@
 /*
- * WinlatorHUD v3.6 — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.7 — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 4 级密度（精简/标准/详细/MEGA）。
+ *
+ * v3.7 变更（记录扩展 + Demo App + 一键补丁脚本）:
+ *   - CSV/JSON 记录加入热节流状态和磁盘 I/O（21列）
+ *   - 新增 Demo App 模块（独立可运行，模拟帧率，无需 Winlator）
+ *   - patch/patch_winlator_hud.py 一键集成补丁生成器
  *
  * v3.6 变更（参考 Xnick417x/WinNative FrameRating + SC0O8Y/GameNative-Performance，独立实现）：
  *   - 功耗读取升级：BatteryManager 官方 API + 2 个 sysfs 三级回退（修复多数设备显示"-"问题）
@@ -1809,13 +1814,14 @@ public final class WinlatorHUD {
      * 每个数据点用 float[] 存储，timestamp 存在 [0]，毫秒精度。
      */
     private static final class RecordingSession {
-        private static final int COL_COUNT = 18;
+        private static final int COL_COUNT = 21;
         private static final String[] COLUMNS = {
             "timestamp_ms", "fps", "frame_time_ms", "avg_fps",
             "low_1pct", "low_01pct", "presented_fps",
             "gpu_load", "gpu_temp", "gpu_clock_mhz",
             "cpu_load", "cpu_temp", "cpu_clock_mhz",
             "ram_percent", "ram_gib", "bat_percent", "bat_power_w",
+            "thermal_status", "disk_read_kbs", "disk_write_kbs",
             "session_elapsed_s"
         };
 
@@ -1855,7 +1861,10 @@ public final class WinlatorHUD {
             p[14] = metrics.ramGib;
             p[15] = metrics.batPercent;
             p[16] = metrics.batPower;
-            p[17] = (float)((now - startTimeMs) / 1000.0); // 会话经过秒数
+            p[17] = metrics.thermalStatus;       // v3.7: 热节流状态
+            p[18] = metrics.diskReadKBs;         // v3.7: 磁盘读速率
+            p[19] = metrics.diskWriteKBs;        // v3.7: 磁盘写速率
+            p[20] = (float)((now - startTimeMs) / 1000.0); // 会话经过秒数
             points.add(p);
         }
 

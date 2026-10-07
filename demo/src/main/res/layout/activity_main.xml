@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="WinlatorHUD Demo"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="无需 Winlator，直接体验 HUD 全部功能"
+        android:textSize="14sp"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="点击「启动 HUD」开始"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:padding="12dp"
+        android:background="#FF1A1A2E"
+        android:textColor="#FFE0E0E0"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/btnInit"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="启动 HUD" />
+
+    <Button
+        android:id="@+id/btnSim"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="开始模拟帧率" />
+
+    <Button
+        android:id="@+id/btnTheme"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="切换主题（默认蓝/暗夜绿/暖橙）" />
+
+    <Button
+        android:id="@+id/btnDensity"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="切换密度（HUD 上单击）" />
+
+    <Button
+        android:id="@+id/btnRelease"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="释放 HUD" />
+
+</LinearLayout>

@@ -117,11 +117,11 @@ WinlatorHUD.stopRecording();
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.6.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.7.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.6.0
-git push origin v3.6.0
+git tag v3.7.0
+git push origin v3.7.0
 ```
 
 ## 兼容性
@@ -134,10 +134,35 @@ git push origin v3.6.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.5.0 | 当前稳定版 | GPU/CPU/RAM 负载值自动变色（绿→黄→红）/ 详细模式仪表盘进度条 / 3套预设主题（默认蓝/暗夜绿/暖橙） |
-| v3.4.0 | 历史版本 | 多 Fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative） |
-| v3.3.0 | 历史版本 | CSV/JSON 性能记录导出（17项指标时间序列） |
-| v3.6.x | 规划中 | 磁盘 I/O 统计 / 帧时间直方图 / 自定义主题配色 |
+| v3.7.0 | 当前稳定版 | 记录扩展（21列含热节流/磁盘I/O）/ Demo App 独立演示 / 一键集成补丁脚本 |
+| v3.6.0 | 历史版本 | 功耗三级回退 / 热节流状态 / 帧时间直方图 / 磁盘 I/O |
+| v3.5.0 | 历史版本 | 动态变色 / 仪表盘进度条 / 3套主题 |
+| v3.4.0 | 历史版本 | 多 Fork 接入指南 |
+| v3.3.0 | 历史版本 | CSV/JSON 性能记录导出 |
+
+## Demo App（v3.7+）
+
+无需集成 Winlator，直接安装即可体验 HUD 全部功能。
+
+```bash
+# 编译 Demo APK
+./gradlew :demo:assembleDebug
+
+# 安装
+adb install demo/build/outputs/apk/debug/demo-debug.apk
+```
+
+Demo 功能：启动 HUD / 模拟帧率（30-120 FPS 随机波动）/ 切换主题 / 释放 HUD。手势操作（单击循环密度、双击切换横竖、拖拽移动、长按锁定）全部可用。
+
+## 一键集成补丁（v3.7+）
+
+自动检测任意 Winlator fork 的 XServerDisplayActivity，生成集成补丁，无需手动找行号。
+
+```bash
+python3 patch/patch_winlator_hud.py /path/to/winlator-project
+```
+
+输出 `winlator-hud-auto.patch` + `PATCH_NOTES.md`，然后 `git apply` 即可。支持官方 / Bionic / glibc / Ludashi / WinNative / GameNative 等全部 fork。
 
 ## 许可证
 

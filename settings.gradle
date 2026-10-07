@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "WinlatorHUD"
 include ':winlator-hud'
+include ':demo'
