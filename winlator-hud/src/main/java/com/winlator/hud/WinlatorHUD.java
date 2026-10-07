@@ -1,24 +1,20 @@
 /*
- * WinlatorHUD v3.5 — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.6 — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 4 级密度（精简/标准/详细/MEGA）。
  *
- * v3.5 变更（参考 Xnick417x/WinNative PerformanceHud 设计思路，独立实现）：
- *   - GPU/CPU/RAM 负载值自动变色（绿<60% → 黄<85% → 红≥85%）
- *   - 详细/MEGA 模式新增仪表盘进度条（GPU/CPU/RAM 水平进度条）
- *   - 3 套预设主题（默认蓝 / 暗夜绿 / 暖橙），setTheme() 切换
+ * v3.6 变更（参考 Xnick417x/WinNative FrameRating + SC0O8Y/GameNative-Performance，独立实现）：
+ *   - 功耗读取升级：BatteryManager 官方 API + 2 个 sysfs 三级回退（修复多数设备显示"-"问题）
+ *   - 热节流状态：PowerManager.getCurrentThermalStatus() 六级显示（none→shutdown）
+ *   - 帧时间直方图：PC MangoHud 招牌功能，详细/MEGA 模式显示帧时间分布
+ *   - 磁盘 I/O：/proc/self/io 读取进程读写速率（尽力而为）
  *
- * v3.4 变更：多 Fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative）
+ * v3.5 变更：GPU/CPU/RAM 负载值自动变色 / 仪表盘进度条 / 3套预设主题
+ * v3.4 变更：多 Fork 接入指南
  * v3.3 变更：CSV/JSON 性能记录导出
  * v3.2 变更：MEGA 密度级 / 锁定徽章动画 / 可配置外观 / Mali GPU / 温度优先级排序
  * v3.1 变更：配置持久化 / setPresentedFps() 帧生成 / 诊断导出
- *
- * 集成方式：
- *   WinlatorHUD.init(activity);
- *   渲染循环中调用 WinlatorHUD.recordFrame();
- *   WinlatorHUD.setTheme(WinlatorHUD.THEME_GREEN); // v3.5+ 可选
- *   WinlatorHUD.release();
  *
  * 手势：单击循环密度，双击切换横/竖，拖拽移动，长按1.5s锁定。
  */
@@ -802,6 +798,42 @@ public final class WinlatorHUD {
             }
         }
 
+        // ==================== v3.6 帧时间直方图 ====================
+
+        /**
+         * 绘制帧时间直方图（PC MangoHud 招牌功能）。
+         * 10 个 bin，0-50ms，每 bin 5ms。柱高表示该区间帧数量占比。
+         * 颜色：<16.7ms(60fps) 绿，<33.3ms(30fps) 黄，其余红。
+         */
+        private void drawHistogram(Canvas canvas, float x, float y, float width, float height, FrameTracker t) {
+            int[] hist = t.getHistogram();
+            int total = t.getHistTotal();
+            if (total < 10) return; // 样本不足不画
+            float binW = width / hist.length;
+            float maxH = 0;
+            for (int v : hist) if (v > maxH) maxH = v;
+            if (maxH <= 0) return;
+            for (int i = 0; i < hist.length; i++) {
+                float h = (hist[i] / maxH) * height;
+                float bx = x + i * binW;
+                float by = y + height - h;
+                // 颜色按帧时间区间
+                int color;
+                if (i < 4) color = 0xFF4CAF50;       // 0-20ms 绿
+                else if (i < 7) color = 0xFFFFC107;   // 20-35ms 黄
+                else color = 0xFFF44336;                // 35-50ms 红
+                bgPaint.setColor(color);
+                canvas.drawRect(bx + 1, by, bx + binW - 1, y + height, bgPaint);
+            }
+            // 标签
+            paint.setColor(C_DIM);
+            paint.setTextSize(smallTextSize);
+            canvas.drawText("0ms", x, y + height + smallTextSize + 2, paint);
+            String rightLabel = "50ms";
+            float rw = paint.measureText(rightLabel);
+            canvas.drawText(rightLabel, x + width - rw, y + height + smallTextSize + 2, paint);
+        }
+
         // ==================== 竖向竖列绘制 ====================
         private void drawVertical(Canvas canvas, SystemMetrics m, FrameTracker t) {
             float y = 0;
@@ -866,6 +898,12 @@ public final class WinlatorHUD {
                     drawGraph(canvas, 0, y, 160 * dp, graphH, t);
                     y += graphH + 2;
                 }
+                // v3.6: 帧时间直方图（PC MangoHud 招牌，详细/MEGA 模式）
+                if (t.getHistTotal() >= 10) {
+                    float histH = 28 * dp;
+                    drawHistogram(canvas, 0, y, 160 * dp, histH, t);
+                    y += histH + smallTextSize + 4;
+                }
                 sb.setLength(0);
                 sb.append("AVG ").append(fmt(t.avgFps)).append("  1% ").append(fmt(t.low1)).append("  0.1% ").append(fmt(t.low01));
                 y = drawVRow(canvas, y, "", sb.toString(), C_DIM, smallTextSize);
@@ -906,6 +944,17 @@ public final class WinlatorHUD {
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
                         (m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
                 if (m.netValid) y = drawVRow(canvas, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
+                // v3.6: 热节流状态（>0 时红色显示）
+                if (m.thermalStatus > 0) {
+                    int tColor = m.thermalStatus >= 3 ? 0xFFF44336 : (m.thermalStatus >= 2 ? 0xFFFFC107 : 0xFFFF9800);
+                    y = drawVRow(canvas, y, "THROTTLE", SystemMetrics.THERMAL_LABELS[m.thermalStatus], tColor, smallTextSize);
+                }
+                // v3.6: 磁盘 I/O（尽力而为，读不到不显示）
+                if (m.diskReadKBs >= 0 || m.diskWriteKBs >= 0) {
+                    String diskStr = (m.diskReadKBs >= 0 ? fmt1(m.diskReadKBs) + "↓" : "-") + " " +
+                                     (m.diskWriteKBs >= 0 ? fmt1(m.diskWriteKBs) + "↑" : "-");
+                    y = drawVRow(canvas, y, "DISK", diskStr, C_DIM, smallTextSize);
+                }
                 if (has(SHOW_REFRESH_RATE) && m.refreshRate > 0) {
                     y = drawVRow(canvas, y, "DISP", "@" + (int)m.refreshRate + "Hz", C_DIM, smallTextSize);
                 }
@@ -1066,6 +1115,15 @@ public final class WinlatorHUD {
         long elapsedSec = 0;
         private SystemMetrics metrics;
 
+        // v3.6: 帧时间直方图（10 bin，0-50ms，每 bin 5ms）
+        private static final int HIST_BINS = 10;
+        private static final float HIST_MAX_MS = 50f;
+        private final int[] histogram = new int[HIST_BINS];
+        private int histTotal = 0;
+
+        int[] getHistogram() { return histogram; }
+        int getHistTotal() { return histTotal; }
+
         void setMetrics(SystemMetrics m) { this.metrics = m; }
 
         synchronized void recordFrame() {
@@ -1079,6 +1137,10 @@ public final class WinlatorHUD {
                     frameTime = dtMs;
                     fps = 1000.0 / dtMs;
                     if (sView != null) sView.pushGraph(fps);
+                    // v3.6: 更新帧时间直方图
+                    int bin = Math.min(HIST_BINS - 1, (int)(dtMs / (HIST_MAX_MS / HIST_BINS)));
+                    histogram[bin]++;
+                    histTotal++;
                 }
             }
             lastFrameNs = now;
@@ -1119,6 +1181,14 @@ public final class WinlatorHUD {
         float refreshRate = 0;
         String exeName = "";
 
+        // v3.6: 热节流状态（0=none, 1=light, 2=moderate, 3=severe, 4=critical, 5=emergency, 6=shutdown）
+        int thermalStatus = 0;
+        private static final String[] THERMAL_LABELS = {"", "LIGHT", "MOD", "SEVERE", "CRIT", "EMERG", "SHUT"};
+
+        // v3.6: 磁盘 I/O（/proc/self/io，尽力而为）
+        float diskReadKBs = -1, diskWriteKBs = -1;
+        private long lastDiskRead = -1, lastDiskWrite = -1, lastDiskTime = 0;
+
         private long prevCpuTotal = 0, prevCpuIdle = 0;
         private boolean cpuWarmed = false;
         private int[] maxCoreClock = new int[coreCount];
@@ -1154,6 +1224,8 @@ public final class WinlatorHUD {
             readBattery();
             readNetwork();
             readExeName();
+            readThermal();   // v3.6
+            readDiskIO();    // v3.6
         }
 
         private void readGpu() {
@@ -1416,6 +1488,27 @@ public final class WinlatorHUD {
             return parts.length >= 2 ? Long.parseLong(parts[1]) : 0;
         }
 
+        // v3.6: 功耗三级回退（参考 Xnick417x/WinNative FrameRating）
+        // 1. BatteryManager 官方 API  2. /sys/class/power_supply/battery/current_now  3. /sys/class/power_supply/bms/current_now
+        private float getBatteryCurrentAmps() {
+            long currentRaw = 0;
+            try {
+                BatteryManager bm = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
+                if (bm != null) currentRaw = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
+            } catch (Exception e) { /* fall through */ }
+            if (currentRaw == 0 || currentRaw == Long.MIN_VALUE) {
+                currentRaw = readLong("/sys/class/power_supply/battery/current_now");
+            }
+            if (currentRaw == 0 || currentRaw == Long.MIN_VALUE) {
+                currentRaw = readLong("/sys/class/power_supply/bms/current_now");
+            }
+            if (currentRaw == 0 || currentRaw == Long.MIN_VALUE) return -1f;
+            long abs = Math.abs(currentRaw);
+            // 单位自适应：<20000 视为 mA，否则 µA（参考 Xnick 实现）
+            if (abs < 20000) return abs / 1000f;
+            return abs / 1_000_000f;
+        }
+
         private void readBattery() {
             try {
                 IntentFilter f = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
@@ -1427,10 +1520,12 @@ public final class WinlatorHUD {
                     batTemp = battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
                     if (batTemp > 100) batTemp = batTemp / 10;
                     int voltage = battery.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1);
-                    int current = battery.getIntExtra("current_now", 0);
-                    if (voltage > 0) {
-                        batPower = (voltage / 1000f) * (current / 1_000_000f);
-                        if (batPower < 0) batPower = -batPower;
+                    // v3.6: 三级回退功耗（替代原 broadcast extra current_now）
+                    float amps = getBatteryCurrentAmps();
+                    if (voltage > 0 && amps > 0) {
+                        batPower = (voltage / 1000f) * amps;
+                    } else {
+                        batPower = -1;
                     }
                     if (batPower > 0.1 && batPercent < 100) {
                         int capacity = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 4000);
@@ -1444,6 +1539,49 @@ public final class WinlatorHUD {
                     }
                 }
             } catch (Exception e) { /* ignore */ }
+        }
+
+        // v3.6: 热节流状态（PowerManager API 29+）
+        private void readThermal() {
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+                thermalStatus = 0;
+                return;
+            }
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+                int status = pm != null ? pm.getCurrentThermalStatus() : 0;
+                thermalStatus = Math.max(0, Math.min(status, THERMAL_LABELS.length - 1));
+            } catch (Exception e) { thermalStatus = 0; }
+        }
+
+        // v3.6: 磁盘 I/O（/proc/self/io，尽力而为）
+        private void readDiskIO() {
+            try {
+                BufferedReader br = new BufferedReader(new FileReader("/proc/self/io"));
+                long readBytes = -1, writeBytes = -1;
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (line.startsWith("read_bytes:")) {
+                        readBytes = Long.parseLong(line.split(":")[1].trim());
+                    } else if (line.startsWith("write_bytes:")) {
+                        writeBytes = Long.parseLong(line.split(":")[1].trim());
+                    }
+                }
+                br.close();
+                long now = System.currentTimeMillis();
+                if (lastDiskTime > 0 && readBytes >= 0 && writeBytes >= 0) {
+                    long dt = now - lastDiskTime;
+                    if (dt > 0) {
+                        diskReadKBs = (readBytes - lastDiskRead) / 1024f / (dt / 1000f);
+                        diskWriteKBs = (writeBytes - lastDiskWrite) / 1024f / (dt / 1000f);
+                        if (diskReadKBs < 0) diskReadKBs = 0;
+                        if (diskWriteKBs < 0) diskWriteKBs = 0;
+                    }
+                }
+                lastDiskRead = readBytes;
+                lastDiskWrite = writeBytes;
+                lastDiskTime = now;
+            } catch (Exception e) { diskReadKBs = -1; diskWriteKBs = -1; }
         }
 
         private void readNetwork() {
