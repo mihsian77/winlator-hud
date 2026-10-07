@@ -1,8 +1,12 @@
 /*
- * WinlatorHUD v3.7 — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.8 (dev) — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 4 级密度（精简/标准/详细/MEGA）。
+ *
+ * v3.8 变更（开发中，待积累功能后发布）:
+ *   - 数据源自检面板：13个数据源绿/黄/红状态指示灯，可视化显示哪些读到/被拦
+ *   - 公共 API: toggleSelfCheck() / setSelfCheckEnabled() / buildSelfCheckReport()
  *
  * v3.7 变更（记录扩展 + Demo App + 一键补丁脚本）:
  *   - CSV/JSON 记录加入热节流状态和磁盘 I/O（21列）
@@ -435,6 +439,50 @@ public final class WinlatorHUD {
         return out;
     }
 
+    // ==================== v3.8 数据源自检 ====================
+
+    /** 切换自检面板显示/隐藏 */
+    public static void toggleSelfCheck() {
+        if (sView != null) {
+            sView.selfCheckMode = !sView.selfCheckMode;
+            sView.invalidate();
+        }
+    }
+
+    /** 设置自检面板是否显示 */
+    public static void setSelfCheckEnabled(boolean enabled) {
+        if (sView != null) {
+            sView.selfCheckMode = enabled;
+            sView.invalidate();
+        }
+    }
+
+    /** 生成文本版自检报告（可用于日志或导出） */
+    public static String buildSelfCheckReport(Context context) {
+        SystemMetrics m = new SystemMetrics(context);
+        m.update();
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== WinlatorHUD 数据源自检报告 ===\n");
+        sb.append("时间: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date())).append("\n");
+        sb.append("设备: ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n");
+        sb.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n\n");
+        String[] names = SystemMetrics.SELF_CHECK_NAMES;
+        int[] status = m.selfCheckStatus;
+        String[] values = m.selfCheckValue;
+        int ok = 0, warn = 0, fail = 0;
+        for (int i = 0; i < names.length; i++) {
+            String s;
+            if (status[i] == 0) { s = "OK"; ok++; }
+            else if (status[i] == 1) { s = "PARTIAL"; warn++; }
+            else { s = "UNAVAILABLE"; fail++; }
+            sb.append(String.format("  [%-11s] %-8s = %s\n", s, names[i], values[i] != null ? values[i] : "-"));
+        }
+        sb.append("\n汇总: ").append(ok).append(" 正常 / ").append(warn).append(" 部分 / ").append(fail).append(" 不可用\n");
+        sb.append("注: 标记 UNAVAILABLE 的数据源通常被 SELinux 或系统权限拦截，\n");
+        sb.append("    不影响 HUD 正常运行，仅对应数值显示为 \"-\"。\n");
+        return sb.toString();
+    }
+
     public static void release() {
         if (sPrefs != null && sView != null) {
             SharedPreferences.Editor ed = sPrefs.edit();
@@ -466,6 +514,7 @@ public final class WinlatorHUD {
         private int density = DENSITY_NORMAL;
         private int orientation = ORIENT_HORIZONTAL;
         private boolean locked = false;
+        private boolean selfCheckMode = false; // v3.8: 数据源自检面板
         private int bgAlpha = 0xCC;
         private float outlineIntensity = 0.4f;
 
@@ -632,7 +681,10 @@ public final class WinlatorHUD {
             canvas.save();
             canvas.translate(offsetX + pad, pad);
 
-            if (orientation == ORIENT_HORIZONTAL) {
+            // v3.8: 自检模式优先绘制
+            if (selfCheckMode) {
+                drawSelfCheck(canvas, m, w - pad * 2);
+            } else if (orientation == ORIENT_HORIZONTAL) {
                 drawHorizontal(canvas, m, t, w - pad * 2);
             } else {
                 drawVertical(canvas, m, t);
@@ -681,6 +733,59 @@ public final class WinlatorHUD {
             lockFadeStart = SystemClock.uptimeMillis();
             removeCallbacks(lockFadeTick);
             post(lockFadeTick);
+        }
+
+        // ==================== v3.8 数据源自检面板 ====================
+        private void drawSelfCheck(Canvas canvas, SystemMetrics m, int availW) {
+            paint.setTypeface(Typeface.MONOSPACE);
+            float y = 0;
+            float rowH = textSize + 4 * dp;
+            int dotR = (int)(textSize * 0.28f);
+
+            // 标题
+            paint.setColor(0xFF64B5F6);
+            paint.setTextSize(textSize);
+            canvas.drawText("数据源自检 (SELF-CHECK)", 0, y + textSize, paint);
+            y += rowH + 2 * dp;
+
+            // 分隔线
+            bgPaint.setColor(0x33FFFFFF);
+            canvas.drawRect(0, y, availW, y + 1, bgPaint);
+            y += 4 * dp;
+
+            // 各数据源状态
+            String[] names = SystemMetrics.SELF_CHECK_NAMES;
+            int[] status = m.selfCheckStatus;
+            String[] values = m.selfCheckValue;
+            paint.setTextSize(smallTextSize);
+
+            for (int i = 0; i < names.length; i++) {
+                // 状态指示灯
+                int color;
+                if (status[i] == 0) color = 0xFF4CAF50;       // 绿=正常
+                else if (status[i] == 1) color = 0xFFFFC107;   // 黄=部分
+                else color = 0xFFF44336;                         // 红=不可用
+                bgPaint.setColor(color);
+                canvas.drawCircle(dotR, y + smallTextSize / 2f, dotR, bgPaint);
+
+                // 名称
+                paint.setColor(0xFFE0E0E0);
+                canvas.drawText(names[i], dotR * 2 + 6 * dp, y + smallTextSize, paint);
+
+                // 值（右对齐）
+                paint.setColor(status[i] == 2 ? 0xFF888888 : 0xFFFFFFFF);
+                String val = values[i] != null ? values[i] : "-";
+                float tw = paint.measureText(val);
+                canvas.drawText(val, availW - tw, y + smallTextSize, paint);
+
+                y += rowH;
+            }
+
+            // 底部提示
+            y += 4 * dp;
+            paint.setColor(0xFF888888);
+            paint.setTextSize(smallTextSize * 0.85f);
+            canvas.drawText("WinlatorHUD.toggleSelfCheck() 退出", 0, y + smallTextSize, paint);
         }
 
         // ==================== 横向横条绘制 ====================
@@ -1202,6 +1307,46 @@ public final class WinlatorHUD {
         private List<String> gpuLoadPaths;
         private List<String> gpuClockPaths;
 
+        // v3.8: 数据源自检状态（0=正常, 1=部分可用, 2=不可用）
+        private static final String[] SELF_CHECK_NAMES = {
+            "GPU负载", "GPU温度", "GPU频率", "VRAM",
+            "CPU负载", "CPU温度", "CPU频率", "内存",
+            "电池", "功耗", "热节流", "磁盘IO", "网络"
+        };
+        private final int[] selfCheckStatus = new int[SELF_CHECK_NAMES.length];
+        private final String[] selfCheckValue = new String[SELF_CHECK_NAMES.length];
+
+        /** v3.8: 更新自检状态（在 update() 末尾调用） */
+        private void updateSelfCheck() {
+            int i = 0;
+            selfCheckStatus[i] = gpuLoad >= 0 ? 0 : 2;
+            selfCheckValue[i] = gpuLoad >= 0 ? gpuLoad + "%" : "N/A"; i++;
+            selfCheckStatus[i] = gpuTemp >= 0 ? 0 : 2;
+            selfCheckValue[i] = gpuTemp >= 0 ? gpuTemp + "°C" : "N/A"; i++;
+            selfCheckStatus[i] = gpuClock >= 0 ? 0 : 2;
+            selfCheckValue[i] = gpuClock >= 0 ? gpuClock + "MHz" : "N/A"; i++;
+            selfCheckStatus[i] = vramGib >= 0 ? 0 : 1;
+            selfCheckValue[i] = vramGib >= 0 ? fmt1(vramGib) + "G" : "N/A"; i++;
+            selfCheckStatus[i] = cpuLoad >= 0 ? 0 : 2;
+            selfCheckValue[i] = cpuLoad >= 0 ? cpuLoad + "%" : "N/A"; i++;
+            selfCheckStatus[i] = cpuTemp >= 0 ? 0 : 1;
+            selfCheckValue[i] = cpuTemp >= 0 ? cpuTemp + "°C" : "N/A"; i++;
+            selfCheckStatus[i] = cpuClock >= 0 ? 0 : 2;
+            selfCheckValue[i] = cpuClock >= 0 ? (cpuClock/1000f) + "GHz" : "N/A"; i++;
+            selfCheckStatus[i] = ramPercent > 0 ? 0 : 2;
+            selfCheckValue[i] = ramPercent + "%"; i++;
+            selfCheckStatus[i] = batPercent > 0 ? 0 : 2;
+            selfCheckValue[i] = batPercent + "%"; i++;
+            selfCheckStatus[i] = batPower >= 0 ? 0 : 1;
+            selfCheckValue[i] = batPower >= 0 ? fmt1(batPower) + "W" : "N/A"; i++;
+            selfCheckStatus[i] = 0;
+            selfCheckValue[i] = THERMAL_LABELS[thermalStatus]; i++;
+            selfCheckStatus[i] = diskReadKBs >= 0 ? 0 : 1;
+            selfCheckValue[i] = diskReadKBs >= 0 ? fmt1(diskReadKBs) + "↓" : "N/A"; i++;
+            selfCheckStatus[i] = netValid ? 0 : 1;
+            selfCheckValue[i] = netValid ? fmt1(netDownKB) + "↓" : "N/A";
+        }
+
         // v3.2: Mali gpuinfo 状态（delta-ms/wall-ms 需要两次调用间状态）
         private long maliGpuBusyMs = 0;
         private long maliGpuTotalMs = 0;
@@ -1231,6 +1376,7 @@ public final class WinlatorHUD {
             readExeName();
             readThermal();   // v3.6
             readDiskIO();    // v3.6
+            updateSelfCheck(); // v3.8
         }
 
         private void readGpu() {
