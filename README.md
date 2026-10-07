@@ -38,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-3.3.0.aar')
+    implementation files('libs/WinlatorHUD-3.5.0.aar')
 }
 ```
 
@@ -68,6 +68,9 @@ WinlatorHUD.setDxVersion("DX11");
 // v3.2+ 可配置外观（可选，默认已持久化）
 WinlatorHUD.setBgAlpha(0xCC);       // 背景透明度 0-255
 WinlatorHUD.setOutlineIntensity(0.4f); // 描边强度 0-1
+
+// v3.5+ 主题配色（默认蓝 / 暗夜绿 / 暖橙）
+WinlatorHUD.setTheme(WinlatorHUD.THEME_GREEN);
 
 // v3.1+ 诊断导出（排查"指标读不到"时使用）
 File diag = WinlatorHUD.exportDiagnostics(context);
@@ -114,11 +117,11 @@ WinlatorHUD.stopRecording();
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.3.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.5.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.3.0
-git push origin v3.3.0
+git tag v3.5.0
+git push origin v3.5.0
 ```
 
 ## 兼容性
@@ -131,10 +134,10 @@ git push origin v3.3.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.4.0 | 当前稳定版 | 多 Fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative 精确接入点 + 已有HUD共存方案） |
+| v3.5.0 | 当前稳定版 | GPU/CPU/RAM 负载值自动变色（绿→黄→红）/ 详细模式仪表盘进度条 / 3套预设主题（默认蓝/暗夜绿/暖橙） |
+| v3.4.0 | 历史版本 | 多 Fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative） |
 | v3.3.0 | 历史版本 | CSV/JSON 性能记录导出（17项指标时间序列） |
-| v3.2.0 | 历史版本 | MEGA 密度级 / 锁定徽章动画 / 可配置外观 / Mali GPU / 温度优先级排序 |
-| v3.5.x | 规划中 | 自定义主题配色 / 磁盘 I/O 统计 / 帧时间直方图 |
+| v3.6.x | 规划中 | 磁盘 I/O 统计 / 帧时间直方图 / 自定义主题配色 |
 
 ## 许可证
 
