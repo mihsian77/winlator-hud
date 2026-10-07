@@ -895,7 +895,7 @@ public final class WinlatorHUD {
                 }
 
                 // v3.5: RAM 动态颜色 + 仪表盘进度条
-                int ramCol = loadColor(m.ramPercent);
+                int ramCol = loadColor((int)m.ramPercent);
                 y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", ramCol);
                 drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.ramPercent / 100f, ramCol);
                 if (m.swapGib >= 0) y = drawVRow(canvas, y, "SWP", fmt1(m.swapGib) + "G", ramCol, smallTextSize);
