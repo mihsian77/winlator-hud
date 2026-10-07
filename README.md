@@ -38,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-3.5.0.aar')
+    implementation files('libs/WinlatorHUD-3.6.0.aar')
 }
 ```
 
@@ -117,11 +117,11 @@ WinlatorHUD.stopRecording();
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.5.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.6.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.5.0
-git push origin v3.5.0
+git tag v3.6.0
+git push origin v3.6.0
 ```
 
 ## 兼容性
