@@ -38,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-3.2.0.aar')
+    implementation files('libs/WinlatorHUD-3.3.0.aar')
 }
 ```
 
@@ -73,6 +73,13 @@ WinlatorHUD.setOutlineIntensity(0.4f); // 描边强度 0-1
 File diag = WinlatorHUD.exportDiagnostics(context);
 // 或直接获取报告文本
 String report = WinlatorHUD.buildDiagnosticsReport(context);
+
+// v3.3+ 性能记录（CSV/JSON 导出，17项指标时间序列）
+WinlatorHUD.startRecording();
+// ... 游戏运行期间自动采样（默认1秒/点，IO线程零渲染开销）
+File csv = WinlatorHUD.exportRecordingCSV(context);   // Excel/Origin 可直接打开
+File json = WinlatorHUD.exportRecordingJSON(context); // 结构化数据
+WinlatorHUD.stopRecording();
 ```
 
 ### 配置持久化（v3.1+）
@@ -103,11 +110,11 @@ String report = WinlatorHUD.buildDiagnosticsReport(context);
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.2.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.3.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.2.0
-git push origin v3.2.0
+git tag v3.3.0
+git push origin v3.3.0
 ```
 
 ## 兼容性
@@ -120,10 +127,10 @@ git push origin v3.2.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.2.0 | 当前稳定版 | MEGA 密度级 / 锁定徽章动画 / 可配置背景透明度与描边 / Mali GPU 支持 / 温度优先级排序 / 长按1.5s锁定 |
+| v3.3.0 | 当前稳定版 | CSV/JSON 性能记录导出（17项指标时间序列，默认1秒采样，IO线程零渲染开销） |
+| v3.2.0 | 历史版本 | MEGA 密度级 / 锁定徽章动画 / 可配置背景透明度与描边 / Mali GPU / 温度优先级排序 |
 | v3.1.0 | 历史版本 | 配置持久化 / presentedFps 帧生成 / 诊断导出 |
-| v3.0.0 | 历史版本 | 横向顶部横条 + 竖向紧凑面板 |
-| v3.3.x | 规划中 | 自定义主题 / 性能报告导出（CSV/JSON）/ 磁盘 I/O 统计 |
+| v3.4.x | 规划中 | 多 fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative 精确接入点） |
 
 ## 许可证
 
