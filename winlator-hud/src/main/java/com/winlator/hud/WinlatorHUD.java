@@ -1,31 +1,23 @@
 /*
- * WinlatorHUD v3.3 — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.5 — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 4 级密度（精简/标准/详细/MEGA）。
  *
- * v3.3 变更：
- *   - CSV/JSON 性能记录导出（startRecording/stopRecording/exportRecording）
- *   - 记录 17 项指标时间序列：FPS/帧时间/1%low/0.1%low/presentedFps/GPU/CPU/内存/电池
- *   - 默认 1 秒采样间隔，可配置；记录在 IO 线程，零渲染开销
+ * v3.5 变更（参考 Xnick417x/WinNative PerformanceHud 设计思路，独立实现）：
+ *   - GPU/CPU/RAM 负载值自动变色（绿<60% → 黄<85% → 红≥85%）
+ *   - 详细/MEGA 模式新增仪表盘进度条（GPU/CPU/RAM 水平进度条）
+ *   - 3 套预设主题（默认蓝 / 暗夜绿 / 暖橙），setTheme() 切换
  *
- * v3.2 变更：
- *   - MEGA 超详细密度级 / 锁定徽章动画 / 可配置背景透明度与描边
- *   - Mali GPU 支持 / 温度优先级排序 / 长按1.5s锁定
- *
- * v3.1 变更：
- *   - 配置持久化 / setPresentedFps() 帧生成 / 诊断导出
+ * v3.4 变更：多 Fork 接入指南（官方/Bionic/glibc/Ludashi/GameNative/WinNative）
+ * v3.3 变更：CSV/JSON 性能记录导出
+ * v3.2 变更：MEGA 密度级 / 锁定徽章动画 / 可配置外观 / Mali GPU / 温度优先级排序
+ * v3.1 变更：配置持久化 / setPresentedFps() 帧生成 / 诊断导出
  *
  * 集成方式：
  *   WinlatorHUD.init(activity);
  *   渲染循环中调用 WinlatorHUD.recordFrame();
- *   帧生成开启时调用 WinlatorHUD.setPresentedFps(displayFps);
- *   WinlatorHUD.setGameInfo(engineName, resolution, wineVersion);
- *   // 性能记录（v3.3+）
- *   WinlatorHUD.startRecording();
- *   // ... 游戏运行 ...
- *   File csv = WinlatorHUD.exportRecordingCSV(context);
- *   WinlatorHUD.stopRecording();
+ *   WinlatorHUD.setTheme(WinlatorHUD.THEME_GREEN); // v3.5+ 可选
  *   WinlatorHUD.release();
  *
  * 手势：单击循环密度，双击切换横/竖，拖拽移动，长按1.5s锁定。
@@ -156,6 +148,45 @@ public final class WinlatorHUD {
     private static final int C_GRAPH_BG = 0x224CAF50;
     private static final int C_LOCK     = 0xFFFFFFFF;
 
+    // ==================== v3.5 主题 ====================
+    public static final int THEME_DEFAULT = 0; // 蓝绿配色（原默认）
+    public static final int THEME_GREEN   = 1; // 暗夜绿（参考 Xnick417x PerformanceHud）
+    public static final int THEME_AMBER   = 2; // 暖橙（低蓝光，适合夜间）
+
+    private static int sTheme = THEME_DEFAULT;
+
+    // 主题色表：[主题][指标类型]
+    // 指标类型：0=GPU, 1=CPU, 2=RAM, 3=BAT, 4=LABEL, 5=TEXT, 6=DIM
+    private static final int[][] THEME_COLORS = {
+        // THEME_DEFAULT（原配色）
+        { 0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0, 0xFFFF9800, 0xFF888888, 0xFFFFFFFF, 0xFFAAAAAA },
+        // THEME_GREEN（暗夜绿）
+        { 0xFF35D0BA, 0xFF1A9FFF, 0xFF7C4DFF, 0xFFFFB020, 0xFF7A8FA8, 0xFFF0F4FF, 0xFF7A8FA8 },
+        // THEME_AMBER（暖橙）
+        { 0xFFFFA726, 0xFFEF6C00, 0xFF8D6E63, 0xFFFFCC80, 0xFFBDBDBD, 0xFFFFF8E1, 0xFFBDBDBD },
+    };
+
+    /** v3.5+ 获取当前主题的指标颜色 */
+    private static int themeColor(int type) {
+        return THEME_COLORS[sTheme][type];
+    }
+
+    /** v3.5+ 负载值自动变色：绿<60% → 黄<85% → 红≥85% */
+    private static int loadColor(int load) {
+        if (load < 0) return themeColor(0); // 不可用用主题色
+        if (load >= 85) return 0xFFF44336; // 红
+        if (load >= 60) return 0xFFFFC107; // 黄
+        return 0xFF4CAF50; // 绿
+    }
+
+    /** v3.5+ 温度自动变色：绿<60°C → 黄<80°C → 红≥80°C */
+    private static int tempColor(int temp) {
+        if (temp < 0) return themeColor(0);
+        if (temp >= 80) return 0xFFF44336;
+        if (temp >= 60) return 0xFFFFC107;
+        return 0xFF4CAF50;
+    }
+
     // ==================== 锁定徽章动画时序 ====================
     private static final long FADE_IN_MS = 160;
     private static final long HOLD_TOGGLE_MS = 1500;
@@ -230,6 +261,7 @@ public final class WinlatorHUD {
         sView.restoreOffset(sPrefs.getInt(KEY_OFFSET_X, 0));
         sView.setBgAlpha(sPrefs.getInt(KEY_BG_ALPHA, 0xCC));
         sView.setOutlineIntensity(sPrefs.getFloat(KEY_OUTLINE, 0.4f));
+        sTheme = sPrefs.getInt("theme", THEME_DEFAULT);
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -281,6 +313,21 @@ public final class WinlatorHUD {
     public static void setOutlineIntensity(float intensity) {
         if (sView != null) sView.setOutlineIntensity(intensity);
     }
+
+    /**
+     * v3.5+ 设置主题配色。
+     * @param theme THEME_DEFAULT / THEME_GREEN / THEME_AMBER
+     */
+    public static void setTheme(int theme) {
+        if (theme >= 0 && theme < THEME_COLORS.length) {
+            sTheme = theme;
+            if (sPrefs != null) sPrefs.edit().putInt("theme", theme).apply();
+            if (sView != null) sView.postInvalidate();
+        }
+    }
+
+    /** v3.5+ 获取当前主题 */
+    public static int getTheme() { return sTheme; }
 
     // ==================== v3.3 性能记录 ====================
 
@@ -730,6 +777,31 @@ public final class WinlatorHUD {
             return lx + w + 10 * dp;
         }
 
+        // ==================== v3.5 仪表盘进度条 ====================
+
+        /**
+         * 绘制水平进度条（仪表盘）。
+         * @param canvas 画布
+         * @param x 左上角 x
+         * @param y 左上角 y
+         * @param width 总宽度
+         * @param fraction 填充比例 0-1（负值不填充）
+         * @param color 填充色
+         */
+        private void drawGaugeBar(Canvas canvas, float x, float y, float width, float fraction, int color) {
+            float barH = 3 * dp;
+            float radius = barH / 2;
+            // 背景轨道
+            bgPaint.setColor(0x33FFFFFF);
+            canvas.drawRoundRect(x, y, x + width, y + barH, radius, radius, bgPaint);
+            // 填充
+            if (fraction > 0) {
+                float fillW = Math.min(width, width * Math.max(0, Math.min(1, fraction)));
+                bgPaint.setColor(color);
+                canvas.drawRoundRect(x, y, x + fillW, y + barH, radius, radius, bgPaint);
+            }
+        }
+
         // ==================== 竖向竖列绘制 ====================
         private void drawVertical(Canvas canvas, SystemMetrics m, FrameTracker t) {
             float y = 0;
@@ -798,26 +870,35 @@ public final class WinlatorHUD {
                 sb.append("AVG ").append(fmt(t.avgFps)).append("  1% ").append(fmt(t.low1)).append("  0.1% ").append(fmt(t.low01));
                 y = drawVRow(canvas, y, "", sb.toString(), C_DIM, smallTextSize);
 
+                // v3.5: GPU 动态颜色 + 仪表盘进度条
+                int gpuCol = loadColor(m.gpuLoad);
                 y = drawVRow(canvas, y, "GPU",
                         (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " +
                         (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " +
-                        (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), C_GPU);
-                if (m.vramGib >= 0) y = drawVRow(canvas, y, "VRAM", fmt1(m.vramGib) + " GiB", C_GPU, smallTextSize);
+                        (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), gpuCol);
+                drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.gpuLoad / 100f, gpuCol);
+                if (m.vramGib >= 0) y = drawVRow(canvas, y, "VRAM", fmt1(m.vramGib) + " GiB", gpuCol, smallTextSize);
 
+                // v3.5: CPU 动态颜色 + 仪表盘进度条
+                int cpuCol = loadColor(m.cpuLoad);
                 y = drawVRow(canvas, y, "CPU",
                         (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " +
                         (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " +
-                        (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
+                        (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), cpuCol);
+                drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.cpuLoad / 100f, cpuCol);
                 if (has(SHOW_CPU_CORES)) {
                     for (int i = 0; i < Math.min(8, m.coreCount); i++) {
                         if (m.coreClock[i] > 0) {
-                            y = drawVRow(canvas, y, "C" + i, m.coreClock[i] + "MHz", C_CPU, smallTextSize);
+                            y = drawVRow(canvas, y, "C" + i, m.coreClock[i] + "MHz", cpuCol, smallTextSize);
                         }
                     }
                 }
 
-                y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", C_RAM);
-                if (m.swapGib >= 0) y = drawVRow(canvas, y, "SWP", fmt1(m.swapGib) + "G", C_RAM, smallTextSize);
+                // v3.5: RAM 动态颜色 + 仪表盘进度条
+                int ramCol = loadColor(m.ramPercent);
+                y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", ramCol);
+                drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.ramPercent / 100f, ramCol);
+                if (m.swapGib >= 0) y = drawVRow(canvas, y, "SWP", fmt1(m.swapGib) + "G", ramCol, smallTextSize);
 
                 y = drawVRow(canvas, y, "BAT",
                         m.batPercent + "% " +
