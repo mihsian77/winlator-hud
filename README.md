@@ -107,7 +107,7 @@ File diag = WinlatorHUD.exportDiagnostics(context);
 // 或直接获取报告文本
 String report = WinlatorHUD.buildDiagnosticsReport(context);
 
-// v3.3+ 性能记录（CSV/JSON 导出，17项指标时间序列）
+// v3.3+ 性能记录（CSV/JSON 导出，多项指标时间序列）
 WinlatorHUD.startRecording();
 // ... 游戏运行期间自动采样（默认1秒/点，IO线程零渲染开销）
 File csv = WinlatorHUD.exportRecordingCSV(context);   // Excel/Origin 可直接打开
