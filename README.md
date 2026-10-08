@@ -6,6 +6,36 @@
 
 > 基于 Android View 渲染管线的 Winlator 性能监控叠加层 — 零 Vulkan layer 依赖，零闪烁，单文件自包含。
 
+## 效果预览
+
+### 横向横条（顶部）
+
+| 精简 | 标准 |
+|------|------|
+| ![横向精简](docs/screenshots/horizontal-compact.png) | ![横向标准](docs/screenshots/horizontal-normal.png) |
+
+详细模式（含帧时间波形图、引擎与进程信息）：
+
+![横向详细](docs/screenshots/horizontal-detailed.png)
+
+### 竖向竖列（侧边）
+
+| 精简 | 详细 |
+|------|------|
+| ![竖向精简](docs/screenshots/vertical-compact.png) | ![竖向详细](docs/screenshots/vertical-detailed.png) |
+
+详细模式含帧时间直方图、GPU/CPU/RAM 仪表盘进度条、逐核心频率、热节流与磁盘 I/O。
+
+### 主题（默认蓝 / 暗夜绿 / 暖橙）
+
+![三主题对比](docs/screenshots/themes.png)
+
+### 数据源自检面板（v3.8）
+
+每个数据源以绿/黄/红指示灯标出读取状态，集成后能一眼看出哪些值被系统权限拦截：
+
+![自检面板](docs/screenshots/selfcheck.png)
+
 ## 技术架构
 
 WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段独立绘制监控面板，不介入 Vulkan/OpenGL 渲染管线。这一架构从根本上规避了 Vulkan layer 注入方案在 Wine present 机制下的帧同步冲突（表现为闪烁、黑屏或闪退）。
