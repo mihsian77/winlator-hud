@@ -1,10 +1,10 @@
 /*
- * WinlatorHUD v3.8 (dev) — Winlator 专用性能监控叠加层
+ * WinlatorHUD v3.8 — Winlator 专用性能监控叠加层
  *
  * 基于 Android View 渲染管线，零 Vulkan layer 依赖，零闪烁。
  * 横向顶部横条 + 竖向侧边紧凑面板，各 4 级密度（精简/标准/详细/MEGA）。
  *
- * v3.8 变更（开发中，待积累功能后发布）:
+ * v3.8 变更:
  *   - 数据源自检面板：13个数据源绿/黄/红状态指示灯，可视化显示哪些读到/被拦
  *   - 公共 API: toggleSelfCheck() / setSelfCheckEnabled() / buildSelfCheckReport()
  *
