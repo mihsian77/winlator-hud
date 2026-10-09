@@ -171,6 +171,37 @@ public final class WinlatorHUD {
         { 0xFFFFA726, 0xFFEF6C00, 0xFF8D6E63, 0xFFFFCC80, 0xFFBDBDBD, 0xFFFFF8E1, 0xFFBDBDBD },
     };
 
+
+    // ==================== v3.9 语言层 ====================
+    public static final int LANG_ZH = 0;
+    public static final int LANG_EN = 1;
+    private static int sLanguage = LANG_ZH; // 默认中文
+
+    /** v3.9: 设置显示语言（LANG_ZH / LANG_EN） */
+    public static void setLanguage(int lang) {
+        sLanguage = (lang == LANG_EN) ? LANG_EN : LANG_ZH;
+    }
+
+    /** v3.9: 标签翻译（GPU/CPU 等通用缩写不翻译） */
+    private static String L(String en) {
+        if (sLanguage == LANG_EN) return en;
+        switch (en) {
+            case "FPS": return "帧率";
+            case "RAM": return "内存";
+            case "BAT": return "电池";
+            case "AVG": return "平均";
+            case "NET": return "网络";
+            case "DISK": return "磁盘";
+            case "DISP": return "显示";
+            case "VRAM": return "显存";
+            case "SWP": return "交换";
+            case "THROTTLE": return "降频";
+            case "1%": return "1%低";
+            case "0.1%": return "0.1%低";
+            default: return en;
+        }
+    }
+
     /** v3.5+ 获取当前主题的指标颜色 */
     private static int themeColor(int type) {
         return THEME_COLORS[sTheme][type];
@@ -239,7 +270,7 @@ public final class WinlatorHUD {
     // ==================== 公共 API ====================
 
     public static void init(Activity activity) {
-        init(activity, SHOW_DEFAULT, DENSITY_NORMAL, ORIENT_HORIZONTAL);
+        init(activity, SHOW_DEFAULT, DENSITY_COMPACT, ORIENT_HORIZONTAL);
     }
 
     public static void init(Activity activity, int showMask, int density, int orientation) {
@@ -269,7 +300,7 @@ public final class WinlatorHUD {
         sTheme = sPrefs.getInt("theme", THEME_DEFAULT);
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -511,7 +542,7 @@ public final class WinlatorHUD {
 
     private static final class HUDView extends View {
         private int showMask = SHOW_DEFAULT;
-        private int density = DENSITY_NORMAL;
+        private int density = DENSITY_COMPACT;
         private int orientation = ORIENT_HORIZONTAL;
         private boolean locked = false;
         private boolean selfCheckMode = false; // v3.8: 数据源自检面板
@@ -614,20 +645,27 @@ public final class WinlatorHUD {
         }
 
         private double displayFps(FrameTracker t) {
-            return sPresentedFps > 0 ? sPresentedFps : t.fps;
+            double base = (t.smoothFps > 0) ? t.smoothFps : t.fps;
+            return sPresentedFps > 0 ? sPresentedFps : base;
         }
 
         private String fpsText(FrameTracker t, boolean detailed) {
             double disp = displayFps(t);
+            String result;
             if (detailed && sPresentedFps > 0 && Math.abs(sPresentedFps - t.fps) > 1.5) {
-                return fmt(disp) + " (" + fmt(t.fps) + ")";
+                result = fmt(disp) + " (" + fmt(t.fps) + ")";
+            } else {
+                result = fmt(disp);
             }
-            return fmt(disp);
+            if (sPresentedFps > t.fps * 1.1 && t.fps > 0) {
+                result += " FG×" + fmt0(sPresentedFps / t.fps);
+            }
+            return result;
         }
 
         @Override
         protected void onMeasure(int wSpec, int hSpec) {
-            int w = MeasureSpec.getSize(wSpec);
+            int w = measureContentWidth() + pad * 2;
             int h = computeHeight();
             setMeasuredDimension(w, h);
         }
@@ -658,7 +696,73 @@ public final class WinlatorHUD {
             }
         }
 
-        @Override
+        /** v3.9: 测量内容宽度（背景贴合内容） */
+        private int measureContentWidth() {
+            if (sMetrics == null || sTracker == null) return 400;
+            SystemMetrics m = sMetrics;
+            FrameTracker t = sTracker;
+            paint.setTypeface(Typeface.MONOSPACE);
+            if (orientation == ORIENT_HORIZONTAL) {
+                float x = 0;
+                if (density == DENSITY_COMPACT) {
+                    x = itemW(x, L("FPS"), String.valueOf((int)displayFps(t)), fpsTextSize);
+                    x = itemW(x, L("GPU"), m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-", textSize);
+                    x = itemW(x, L("CPU"), m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-", textSize);
+                    x = itemW(x, L("RAM"), m.ramPercent + "%", textSize);
+                    x = itemW(x, L("功耗"), m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-", textSize);
+                    x = itemW(x, L("处理器"), m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-", textSize);
+                    x = itemW(x, L("电池"), m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-", textSize);
+                } else if (density == DENSITY_NORMAL) {
+                    x = itemW(x, L("FPS"), (int)displayFps(t) + " " + fmt1(t.frameTime) + "ms", fpsTextSize);
+                    x = itemW(x, L("GPU"), (m.gpuLoad>=0?m.gpuLoad+"%":"-")+" "+(m.gpuTemp>=0?m.gpuTemp+"°C":"-")+" "+(m.gpuClock>=0?m.gpuClock+"MHz":"-"), textSize);
+                    x = itemW(x, L("CPU"), (m.cpuLoad>=0?m.cpuLoad+"%":"-")+" "+(m.cpuTemp>=0?m.cpuTemp+"°C":"-")+" "+(m.cpuClock>=0?(m.cpuClock/1000f)+"GHz":"-"), textSize);
+                    x = itemW(x, L("RAM"), fmt1(m.ramGib)+"G", textSize);
+                    x = itemW(x, L("BAT"), m.batPercent+"% "+(m.batTemp>=0?m.batTemp+"°C":"-")+" "+(m.batPower>=0?fmt1(m.batPower)+"W":"-"), textSize);
+                    x = itemW(x, L("1%"), fmt0(t.low1), textSize);
+                } else {
+                    // DETAILED / MEGA: 取两行最大宽
+                    float x1 = 0, x2 = 0;
+                    x1 = itemW(x1, L("FPS"), (int)displayFps(t)+" "+fmt1(t.frameTime)+"ms", fpsTextSize);
+                    x1 = itemW(x1, L("AVG"), fmt(t.avgFps), textSize);
+                    x1 = itemW(x1, L("1%"), fmt0(t.low1), textSize);
+                    x1 = itemW(x1, L("0.1%"), fmt0(t.low01), textSize);
+                    x2 = itemW(x2, L("GPU"), (m.gpuLoad>=0?m.gpuLoad+"%":"-")+" "+(m.gpuTemp>=0?m.gpuTemp+"°C":"-")+" "+(m.gpuClock>=0?m.gpuClock+"MHz":"-")+" "+(m.vramGib>=0?fmt1(m.vramGib)+"G":""), textSize);
+                    x2 = itemW(x2, L("CPU"), (m.cpuLoad>=0?m.cpuLoad+"%":"-")+" "+(m.cpuTemp>=0?m.cpuTemp+"°C":"-")+" "+(m.cpuClock>=0?(m.cpuClock/1000f)+"GHz":"-"), textSize);
+                    x2 = itemW(x2, L("RAM"), fmt1(m.ramGib)+"G", textSize);
+                    x2 = itemW(x2, L("BAT"), m.batPercent+"% "+(m.batPower>=0?fmt1(m.batPower)+"W":"-"), textSize);
+                    x = Math.max(x1, x2);
+                }
+                return (int)x;
+            } else {
+                // 竖向：label 42dp + 最大值宽
+                float maxValW = 0;
+                paint.setTextSize(textSize);
+                String[] vals = {
+                    String.valueOf((int)displayFps(t))+" "+fmt1(t.frameTime)+"ms",
+                    (m.gpuLoad>=0?m.gpuLoad+"%":"-")+" "+(m.gpuTemp>=0?m.gpuTemp+"°C":"-")+" "+(m.gpuClock>=0?m.gpuClock+"MHz":"-"),
+                    (m.cpuLoad>=0?m.cpuLoad+"%":"-")+" "+(m.cpuTemp>=0?m.cpuTemp+"°C":"-")+" "+(m.cpuClock>=0?(m.cpuClock/1000f)+"GHz":"-"),
+                    fmt1(m.ramGib)+"G "+m.ramPercent+"%",
+                    m.batPercent+"% "+(m.batPower>=0?fmt1(m.batPower)+"W":"-"),
+                };
+                for (String v : vals) {
+                    float w = paint.measureText(v);
+                    if (w > maxValW) maxValW = w;
+                }
+                return (int)(42 * dp + maxValW);
+            }
+        }
+
+        /** v3.9: 计算单个 item 宽度（与 drawHudItem 一致） */
+        private float itemW(float x, String label, String value, int size) {
+            paint.setTextSize(size);
+            float lx = x;
+            if (label != null && !label.isEmpty()) {
+                lx += paint.measureText(label) + 3 * dp;
+            }
+            lx += paint.measureText(value) + 10 * dp;
+            return lx;
+        }
+
         protected void onDraw(Canvas canvas) {
             if (sMetrics == null || sTracker == null) return;
             SystemMetrics m = sMetrics;
@@ -667,8 +771,8 @@ public final class WinlatorHUD {
             int w = getWidth();
             int h = getHeight();
 
-            // 背景（可配置透明度）
-            bgRect.set(offsetX, 0, w, h);
+            // 背景（v3.9: 贴合内容宽度）
+            bgRect.set(0, 0, w, h);
             bgPaint.setColor((bgAlpha << 24) | 0x000000);
             canvas.drawRoundRect(bgRect, 4 * dp, 4 * dp, bgPaint);
             // 描边（可配置强度）
@@ -688,6 +792,16 @@ public final class WinlatorHUD {
                 drawHorizontal(canvas, m, t, w - pad * 2);
             } else {
                 drawVertical(canvas, m, t);
+            }
+            // v3.9: 数据源状态微标（右上角，单击进自检）
+            if (!selfCheckMode && sMetrics != null) {
+                int st = sMetrics.overallStatus();
+                int dotColor = (st == 0) ? 0xFF4CAF50 : (st == 1) ? 0xFFFFC107 : 0xFFF44336;
+                float dotX = (w - pad * 2) - 6 * dp;
+                float dotY = 6 * dp;
+                bgPaint.setColor(dotColor);
+                canvas.drawCircle(dotX, dotY, 4 * dp, bgPaint);
+                bgPaint.setColor((bgAlpha << 24) | 0x000000);
             }
             canvas.restore();
 
@@ -795,35 +909,37 @@ public final class WinlatorHUD {
             paint.setTypeface(Typeface.MONOSPACE);
 
             if (density == DENSITY_COMPACT) {
-                x = drawHudItem(canvas, x, y, "FPS", fpsText(t, false), fpsColor(displayFps(t)), fpsTextSize);
-                x = drawHudItem(canvas, x, y, "GPU", m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-", C_GPU);
-                x = drawHudItem(canvas, x, y, "CPU", m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-", C_CPU);
-                x = drawHudItem(canvas, x, y, "RAM", m.ramPercent + "%", C_RAM);
-                x = drawHudItem(canvas, x, y, "BAT", m.batPercent + "%", C_BAT);
+                x = drawHudItem(canvas, x, y, L("FPS"), fpsText(t, false), fpsColor(displayFps(t)), fpsTextSize);
+                x = drawHudItem(canvas, x, y, L("GPU"), m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-", C_GPU);
+                x = drawHudItem(canvas, x, y, L("CPU"), m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-", C_CPU);
+                x = drawHudItem(canvas, x, y, L("RAM"), m.ramPercent + "%", C_RAM);
+                x = drawHudItem(canvas, x, y, L("功耗"), m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-", C_BAT);
+                x = drawHudItem(canvas, x, y, L("处理器"), m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-", C_CPU);
+                x = drawHudItem(canvas, x, y, L("电池"), m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-", C_BAT);
             } else if (density == DENSITY_NORMAL) {
-                x = drawHudItem(canvas, x, y, "FPS", fpsText(t, true) + " " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
-                x = drawHudItem(canvas, x, y, "GPU",
+                x = drawHudItem(canvas, x, y, L("FPS"), fpsText(t, true) + " " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
+                x = drawHudItem(canvas, x, y, L("GPU"),
                         (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " +
-                        (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " +
+                        (m.gpuTemp >= 0 ? fmt1(m.gpuTemp) + "°C" : "-") + " " +
                         (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), C_GPU);
-                x = drawHudItem(canvas, x, y, "CPU",
+                x = drawHudItem(canvas, x, y, L("CPU"),
                         (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " +
-                        (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " +
+                        (m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-") + " " +
                         (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
-                x = drawHudItem(canvas, x, y, "RAM", fmt1(m.ramGib) + "G", C_RAM);
-                x = drawHudItem(canvas, x, y, "BAT",
+                x = drawHudItem(canvas, x, y, L("RAM"), fmt1(m.ramGib) + "G", C_RAM);
+                x = drawHudItem(canvas, x, y, L("BAT"),
                         m.batPercent + "% " +
-                        (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
+                        (m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-"), C_BAT);
-                x = drawHudItem(canvas, x, y, "1%", fmt(t.low1), C_DIM);
+                x = drawHudItem(canvas, x, y, L("1%"), fmt0(t.low1), C_DIM);
             } else {
                 // DETAILED / MEGA: 两行
                 paint.setTextSize(textSize);
                 x = 0;
-                x = drawHudItem(canvas, x, y, "FPS", fpsText(t, true) + " " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
-                x = drawHudItem(canvas, x, y, "AVG", fmt(t.avgFps), C_DIM);
-                x = drawHudItem(canvas, x, y, "1%", fmt(t.low1), C_DIM);
-                x = drawHudItem(canvas, x, y, "0.1%", fmt(t.low01), C_DIM);
+                x = drawHudItem(canvas, x, y, L("FPS"), fpsText(t, true) + " " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
+                x = drawHudItem(canvas, x, y, L("AVG"), fmt(t.avgFps), C_DIM);
+                x = drawHudItem(canvas, x, y, L("1%"), fmt0(t.low1), C_DIM);
+                x = drawHudItem(canvas, x, y, L("0.1%"), fmt0(t.low01), C_DIM);
                 if (has(SHOW_GRAPH)) {
                     float gx = x + pad;
                     float gw = availW - gx - pad;
@@ -831,23 +947,23 @@ public final class WinlatorHUD {
                 }
                 y += rowH;
                 x = 0;
-                x = drawHudItem(canvas, x, y, "GPU",
+                x = drawHudItem(canvas, x, y, L("GPU"),
                         (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " +
-                        (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " +
+                        (m.gpuTemp >= 0 ? fmt1(m.gpuTemp) + "°C" : "-") + " " +
                         (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-") + " " +
                         (m.vramGib >= 0 ? fmt1(m.vramGib) + "G" : "-"), C_GPU);
-                x = drawHudItem(canvas, x, y, "CPU",
+                x = drawHudItem(canvas, x, y, L("CPU"),
                         (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " +
-                        (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " +
+                        (m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-") + " " +
                         (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
-                x = drawHudItem(canvas, x, y, "RAM", fmt1(m.ramGib) + "G" + (has(SHOW_SWAP) && m.swapGib >= 0 ? " S:" + fmt1(m.swapGib) + "G" : ""), C_RAM);
-                x = drawHudItem(canvas, x, y, "BAT",
+                x = drawHudItem(canvas, x, y, L("RAM"), fmt1(m.ramGib) + "G" + (has(SHOW_SWAP) && m.swapGib >= 0 ? " S:" + fmt1(m.swapGib) + "G" : ""), C_RAM);
+                x = drawHudItem(canvas, x, y, L("BAT"),
                         m.batPercent + "% " +
-                        (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
+                        (m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
                         (has(SHOW_BAT_TIME) && m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
                 if (has(SHOW_NETWORK) && m.netValid) {
-                    x = drawHudItem(canvas, x, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM);
+                    x = drawHudItem(canvas, x, y, L("NET"), fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM);
                 }
                 if (has(SHOW_ENGINE) && !sEngine.isEmpty()) {
                     x = drawHudItem(canvas, x, y, "", sEngine, C_DIM);
@@ -857,7 +973,7 @@ public final class WinlatorHUD {
                 }
                 // MEGA 专属：DX 版本
                 if (density == DENSITY_MEGA && has(SHOW_DX_VERSION) && !sDxVersion.isEmpty()) {
-                    x = drawHudItem(canvas, x, y, "DX", sDxVersion, C_DIM);
+                    x = drawHudItem(canvas, x, y, L("DX"), sDxVersion, C_DIM);
                 }
                 if (has(SHOW_DURATION)) {
                     x = drawHudItem(canvas, x, y, "", fmtDuration(t.elapsedSec), C_DIM);
@@ -878,9 +994,25 @@ public final class WinlatorHUD {
                 lx += paint.measureText(label) + 3 * dp;
             }
             paint.setColor(color);
-            canvas.drawText(value, lx, y + rowH - 4, paint);
-            float w = paint.measureText(value);
-            return lx + w + 10 * dp;
+            // v3.9: 长串截断
+            float maxValW = (getWidth() - pad * 2) - lx - 10 * dp;
+            String drawVal = value;
+            if (paint.measureText(value) > maxValW && maxValW > 20 * dp) {
+                drawVal = value;
+                while (paint.measureText(drawVal + "…") > maxValW && drawVal.length() > 1) {
+                    drawVal = drawVal.substring(0, drawVal.length() - 1);
+                }
+                drawVal += "…";
+            }
+            canvas.drawText(drawVal, lx, y + rowH - 4, paint);
+            float w = paint.measureText(drawVal);
+            float ret = lx + w + 10 * dp;
+            // v3.9: 横向分隔线
+            if (orientation == ORIENT_HORIZONTAL && !label.isEmpty()) {
+                paint.setColor(0x33FFFFFF);
+                canvas.drawLine(ret - 5 * dp, y + 3 * dp, ret - 5 * dp, y + rowH - 3 * dp, paint);
+            }
+            return ret;
         }
 
         // ==================== v3.5 仪表盘进度条 ====================
@@ -951,13 +1083,13 @@ public final class WinlatorHUD {
             paint.setTextSize(textSize);
 
             if (density == DENSITY_COMPACT) {
-                y = drawVRow(canvas, y, "FPS", fpsText(t, false), fpsColor(displayFps(t)), fpsTextSize);
-                y = drawVRow(canvas, y, "GPU", (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " + (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " + (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), C_GPU);
-                y = drawVRow(canvas, y, "CPU", (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " + (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " + (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
-                y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", C_RAM);
-                y = drawVRow(canvas, y, "BAT", m.batPercent + "% " + (m.batTemp >= 0 ? m.batTemp + "°C" : "-"), C_BAT);
+                y = drawVRow(canvas, y, L("FPS"), fpsText(t, false), fpsColor(displayFps(t)), fpsTextSize);
+                y = drawVRow(canvas, y, L("GPU"), (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " + (m.gpuTemp >= 0 ? fmt1(m.gpuTemp) + "°C" : "-") + " " + (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), C_GPU);
+                y = drawVRow(canvas, y, L("CPU"), (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " + (m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-") + " " + (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
+                y = drawVRow(canvas, y, L("RAM"), fmt1(m.ramGib) + "G " + m.ramPercent + "%", C_RAM);
+                y = drawVRow(canvas, y, L("BAT"), m.batPercent + "% " + (m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-"), C_BAT);
             } else if (density == DENSITY_NORMAL) {
-                y = drawVRow(canvas, y, "FPS", fpsText(t, true) + "  " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
+                y = drawVRow(canvas, y, L("FPS"), fpsText(t, true) + "  " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
                 if (has(SHOW_GRAPH)) {
                     drawGraph(canvas, 0, y, 140 * dp, graphH, t);
                     y += graphH + 2;
@@ -965,32 +1097,32 @@ public final class WinlatorHUD {
                 if (has(SHOW_AVG_FPS) || has(SHOW_1PC_LOW) || has(SHOW_01PC_LOW)) {
                     sb.setLength(0);
                     if (has(SHOW_AVG_FPS)) sb.append("AVG ").append(fmt(t.avgFps)).append("  ");
-                    if (has(SHOW_1PC_LOW)) sb.append("1% ").append(fmt(t.low1)).append("  ");
-                    if (has(SHOW_01PC_LOW)) sb.append("0.1% ").append(fmt(t.low01));
+                    if (has(SHOW_1PC_LOW)) sb.append("1% ").append(fmt0(t.low1)).append("  ");
+                    if (has(SHOW_01PC_LOW)) sb.append("0.1% ").append(fmt0(t.low01));
                     y = drawVRow(canvas, y, "", sb.toString(), C_DIM, smallTextSize);
                 }
-                y = drawVRow(canvas, y, "GPU",
+                y = drawVRow(canvas, y, L("GPU"),
                         (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " +
-                        (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " +
+                        (m.gpuTemp >= 0 ? fmt1(m.gpuTemp) + "°C" : "-") + " " +
                         (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), C_GPU);
                 if (has(SHOW_VRAM) && m.vramGib >= 0) {
-                    y = drawVRow(canvas, y, "VRAM", fmt1(m.vramGib) + " GiB", C_GPU, smallTextSize);
+                    y = drawVRow(canvas, y, L("VRAM"), fmt1(m.vramGib) + " GiB", C_GPU, smallTextSize);
                 }
-                y = drawVRow(canvas, y, "CPU",
+                y = drawVRow(canvas, y, L("CPU"),
                         (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " +
-                        (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " +
+                        (m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-") + " " +
                         (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), C_CPU);
-                y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", C_RAM);
+                y = drawVRow(canvas, y, L("RAM"), fmt1(m.ramGib) + "G " + m.ramPercent + "%", C_RAM);
                 if (has(SHOW_SWAP) && m.swapGib >= 0) {
-                    y = drawVRow(canvas, y, "SWP", fmt1(m.swapGib) + "G", C_RAM, smallTextSize);
+                    y = drawVRow(canvas, y, L("SWP"), fmt1(m.swapGib) + "G", C_RAM, smallTextSize);
                 }
-                y = drawVRow(canvas, y, "BAT",
+                y = drawVRow(canvas, y, L("BAT"),
                         m.batPercent + "% " +
-                        (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
+                        (m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
                         (has(SHOW_BAT_TIME) && m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
                 if (has(SHOW_NETWORK) && m.netValid) {
-                    y = drawVRow(canvas, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
+                    y = drawVRow(canvas, y, L("NET"), fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
                 }
                 if (has(SHOW_ENGINE) && !sEngine.isEmpty()) {
                     y = drawVRow(canvas, y, "", sEngine, C_DIM, smallTextSize);
@@ -1003,7 +1135,7 @@ public final class WinlatorHUD {
                 }
             } else {
                 // DETAILED / MEGA
-                y = drawVRow(canvas, y, "FPS", fpsText(t, true) + "  " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
+                y = drawVRow(canvas, y, L("FPS"), fpsText(t, true) + "  " + fmt1(t.frameTime) + "ms", fpsColor(displayFps(t)), fpsTextSize);
                 if (has(SHOW_GRAPH)) {
                     drawGraph(canvas, 0, y, 160 * dp, graphH, t);
                     y += graphH + 2;
@@ -1012,68 +1144,76 @@ public final class WinlatorHUD {
                 if (t.getHistTotal() >= 10) {
                     float histH = 28 * dp;
                     drawHistogram(canvas, 0, y, 160 * dp, histH, t);
-                    y += histH + smallTextSize + 4;
+                    y += histH + 2;
+                    // v3.9: 实时帧时间频谱条
+                    if (t.getSpectrumCount() >= 10) {
+                        float specH = 18 * dp;
+                        drawSpectrum(canvas, 0, y, 160 * dp, specH, t);
+                        y += specH + smallTextSize + 4;
+                    } else {
+                        y += smallTextSize + 4;
+                    }
                 }
                 sb.setLength(0);
-                sb.append("AVG ").append(fmt(t.avgFps)).append("  1% ").append(fmt(t.low1)).append("  0.1% ").append(fmt(t.low01));
+                sb.append("AVG ").append(fmt(t.avgFps)).append("  1% ").append(fmt0(t.low1)).append("  0.1% ").append(fmt0(t.low01));
                 y = drawVRow(canvas, y, "", sb.toString(), C_DIM, smallTextSize);
 
                 // v3.5: GPU 动态颜色 + 仪表盘进度条
                 int gpuCol = loadColor(m.gpuLoad);
-                y = drawVRow(canvas, y, "GPU",
+                y = drawVRow(canvas, y, L("GPU"),
                         (m.gpuLoad >= 0 ? m.gpuLoad + "%" : "-") + " " +
-                        (m.gpuTemp >= 0 ? m.gpuTemp + "°C" : "-") + " " +
+                        (m.gpuTemp >= 0 ? fmt1(m.gpuTemp) + "°C" : "-") + " " +
                         (m.gpuClock >= 0 ? m.gpuClock + "MHz" : "-"), gpuCol);
                 drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.gpuLoad / 100f, gpuCol);
-                if (m.vramGib >= 0) y = drawVRow(canvas, y, "VRAM", fmt1(m.vramGib) + " GiB", gpuCol, smallTextSize);
+                if (m.vramGib >= 0) y = drawVRow(canvas, y, L("VRAM"), fmt1(m.vramGib) + " GiB", gpuCol, smallTextSize);
 
                 // v3.5: CPU 动态颜色 + 仪表盘进度条
                 int cpuCol = loadColor(m.cpuLoad);
-                y = drawVRow(canvas, y, "CPU",
+                y = drawVRow(canvas, y, L("CPU"),
                         (m.cpuLoad >= 0 ? m.cpuLoad + "%" : "-") + " " +
-                        (m.cpuTemp >= 0 ? m.cpuTemp + "°C" : "-") + " " +
+                        (m.cpuTemp >= 0 ? fmt1(m.cpuTemp) + "°C" : "-") + " " +
                         (m.cpuClock >= 0 ? (m.cpuClock / 1000f) + "GHz" : "-"), cpuCol);
                 drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.cpuLoad / 100f, cpuCol);
                 if (has(SHOW_CPU_CORES)) {
                     for (int i = 0; i < Math.min(8, m.coreCount); i++) {
                         if (m.coreClock[i] > 0) {
-                            y = drawVRow(canvas, y, "C" + i, m.coreClock[i] + "MHz", cpuCol, smallTextSize);
+                            y = drawVRow(canvas, y, L("C") + i, m.coreClock[i] + "MHz", cpuCol, smallTextSize);
                         }
                     }
                 }
 
                 // v3.5: RAM 动态颜色 + 仪表盘进度条
                 int ramCol = loadColor((int)m.ramPercent);
-                y = drawVRow(canvas, y, "RAM", fmt1(m.ramGib) + "G " + m.ramPercent + "%", ramCol);
+                y = drawVRow(canvas, y, L("RAM"), fmt1(m.ramGib) + "G " + m.ramPercent + "%", ramCol);
                 drawGaugeBar(canvas, 42 * dp, y - 4 * dp, 100 * dp, m.ramPercent / 100f, ramCol);
-                if (m.swapGib >= 0) y = drawVRow(canvas, y, "SWP", fmt1(m.swapGib) + "G", ramCol, smallTextSize);
+                if (m.swapGib >= 0) y = drawVRow(canvas, y, L("SWP"), fmt1(m.swapGib) + "G", ramCol, smallTextSize);
 
-                y = drawVRow(canvas, y, "BAT",
+                y = drawVRow(canvas, y, L("BAT"),
                         m.batPercent + "% " +
-                        (m.batTemp >= 0 ? m.batTemp + "°C" : "-") + " " +
+                        (m.batTemp >= 0 ? fmt1(m.batTemp) + "°C" : "-") + " " +
                         (m.batPower >= 0 ? fmt1(m.batPower) + "W" : "-") +
                         (m.batTimeMin >= 0 ? " " + fmtTime((int)m.batTimeMin) : ""), C_BAT);
-                if (m.netValid) y = drawVRow(canvas, y, "NET", fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
+                if (m.netValid) y = drawVRow(canvas, y, L("NET"), fmt1(m.netDownKB) + "↓ " + fmt1(m.netUpKB) + "↑", C_DIM, smallTextSize);
                 // v3.6: 热节流状态（>0 时红色显示）
                 if (m.thermalStatus > 0) {
                     int tColor = m.thermalStatus >= 3 ? 0xFFF44336 : (m.thermalStatus >= 2 ? 0xFFFFC107 : 0xFFFF9800);
-                    y = drawVRow(canvas, y, "THROTTLE", SystemMetrics.THERMAL_LABELS[m.thermalStatus], tColor, smallTextSize);
+                    y = drawVRow(canvas, y, L("THROTTLE"), SystemMetrics.THERMAL_LABELS[m.thermalStatus], tColor, smallTextSize);
                 }
                 // v3.6: 磁盘 I/O（尽力而为，读不到不显示）
                 if (m.diskReadKBs >= 0 || m.diskWriteKBs >= 0) {
                     String diskStr = (m.diskReadKBs >= 0 ? fmt1(m.diskReadKBs) + "↓" : "-") + " " +
                                      (m.diskWriteKBs >= 0 ? fmt1(m.diskWriteKBs) + "↑" : "-");
-                    y = drawVRow(canvas, y, "DISK", diskStr, C_DIM, smallTextSize);
+                    y = drawVRow(canvas, y, L("DISK"), diskStr, C_DIM, smallTextSize);
                 }
                 if (has(SHOW_REFRESH_RATE) && m.refreshRate > 0) {
-                    y = drawVRow(canvas, y, "DISP", "@" + (int)m.refreshRate + "Hz", C_DIM, smallTextSize);
+                    y = drawVRow(canvas, y, L("DISP"), "@" + (int)m.refreshRate + "Hz", C_DIM, smallTextSize);
                 }
                 if (!sEngine.isEmpty()) y = drawVRow(canvas, y, "", sEngine, C_DIM, smallTextSize);
                 if (!m.exeName.isEmpty()) y = drawVRow(canvas, y, "", m.exeName, C_DIM, smallTextSize);
-                if (!sWineVersion.isEmpty()) y = drawVRow(canvas, y, "Wine", sWineVersion, C_DIM, smallTextSize);
+                if (!sWineVersion.isEmpty()) y = drawVRow(canvas, y, L("Wine"), sWineVersion, C_DIM, smallTextSize);
                 // MEGA 专属：DX 版本
                 if (density == DENSITY_MEGA && has(SHOW_DX_VERSION) && !sDxVersion.isEmpty()) {
-                    y = drawVRow(canvas, y, "DX", sDxVersion, C_DIM, smallTextSize);
+                    y = drawVRow(canvas, y, L("DX"), sDxVersion, C_DIM, smallTextSize);
                 }
                 y = drawVRow(canvas, y, "", fmtDuration(t.elapsedSec), C_DIM, smallTextSize);
             }
@@ -1085,18 +1225,40 @@ public final class WinlatorHUD {
 
         private float drawVRow(Canvas canvas, float y, String label, String value, int color, int size) {
             paint.setTextSize(size);
-            float x = 0;
             if (!label.isEmpty()) {
                 paint.setColor(C_LABEL);
-                canvas.drawText(label, x, y + rowH - 4, paint);
-                x += 42 * dp;
+                canvas.drawText(label, 0, y + rowH - 4, paint);
             }
             paint.setColor(color);
-            canvas.drawText(value, x, y + rowH - 4, paint);
+            float valW = paint.measureText(value);
+            float contentW = getWidth() - pad * 2;
+            canvas.drawText(value, contentW - valW, y + rowH - 4, paint);
             return y + rowH;
         }
 
         // ==================== 波形图 ====================
+        // ==================== v3.9 实时帧时间频谱 ====================
+        private void drawSpectrum(Canvas canvas, float x, float y, float width, float height, FrameTracker t) {
+            int[] spec = t.getSpectrum();
+            if (t.getSpectrumCount() < 10) return;
+            int max = 1;
+            for (int v : spec) max = Math.max(max, v);
+            int n = spec.length;
+            float barW = width / n;
+            for (int i = 0; i < n; i++) {
+                float h = height * spec[i] / max;
+                float ratio = (float) i / (n - 1);
+                int color;
+                if (ratio < 0.5f) color = 0xFF4CAF50;
+                else if (ratio < 0.8f) color = 0xFFFFC107;
+                else color = 0xFFF44336;
+                bgRect.set(x + i * barW + 1, y + height - h, x + (i + 1) * barW - 1, y + height);
+                bgPaint.setColor(color);
+                canvas.drawRoundRect(bgRect, 1, 1, bgPaint);
+            }
+            bgPaint.setColor((bgAlpha << 24) | 0x000000);
+        }
+
         private void drawGraph(Canvas canvas, float x, float y, float w, float h, FrameTracker t) {
             bgRect.set(x, y, x + w, y + h);
             bgPaint.setColor(C_GRAPH_BG);
@@ -1145,6 +1307,10 @@ public final class WinlatorHUD {
                         offsetX += ev.getRawX() - downX;
                         downX = ev.getRawX();
                         downY = ev.getRawY();
+                        // v3.9: 移动边界 clamp（至少 1/3 在屏内）
+                        int sw = getResources().getDisplayMetrics().widthPixels;
+                        float keep = getWidth() / 3f;
+                        offsetX = Math.max(-getWidth() + keep, Math.min(sw - keep, offsetX));
                         invalidate();
                     }
                     return true;
@@ -1160,6 +1326,13 @@ public final class WinlatorHUD {
                         return true;
                     }
                     if (!dragging && dt < CLICK_TIMEOUT) {
+                        float dotX = getWidth() - pad - 6 * dp;
+                        float dotY = pad + 6 * dp;
+                        if (Math.abs(ev.getX() - dotX) < 14 * dp && Math.abs(ev.getY() - dotY) < 14 * dp) {
+                            selfCheckMode = !selfCheckMode;
+                            invalidate();
+                            return true;
+                        }
                         long now = System.currentTimeMillis();
                         if (now - lastClickTime < 300) {
                             setOrientation(orientation == ORIENT_HORIZONTAL ? ORIENT_VERTICAL : ORIENT_HORIZONTAL);
@@ -1173,6 +1346,12 @@ public final class WinlatorHUD {
                         triggerLockBadge(true);
                         savePrefs();
                     } else if (dragging) {
+                        // v3.9: 边缘吸附
+                        int sw = getResources().getDisplayMetrics().widthPixels;
+                        float snap = 80 * dp;
+                        if (offsetX < snap) offsetX = 0;
+                        else if (offsetX > sw - getWidth() - snap) offsetX = sw - getWidth();
+                        invalidate();
                         savePrefs();
                     }
                     return true;
@@ -1186,6 +1365,17 @@ public final class WinlatorHUD {
         if (v < 0) return "-";
         if (v >= 1000) return String.format(Locale.US, "%.0f", v);
         return String.format(Locale.US, "%.1f", v);
+    }
+
+    /** v3.9: 显示用 FPS（EMA 平滑） */
+    private static double displayFps(FrameTracker t) {
+        return t.smoothFps > 0 ? t.smoothFps : t.fps;
+    }
+
+    /** v3.9: 整数格式化（1% low 等） */
+    private static String fmt0(double v) {
+        if (v < 0) return "-";
+        return String.format(Locale.US, "%.0f", v);
     }
 
     private static String fmt1(double v) {
@@ -1218,6 +1408,7 @@ public final class WinlatorHUD {
         private long startMs = System.currentTimeMillis();
 
         double fps = 0;
+        double smoothFps = 0; // v3.9 EMA 平滑显示值
         double avgFps = 0;
         double low1 = 0;
         double low01 = 0;
@@ -1230,6 +1421,14 @@ public final class WinlatorHUD {
         private static final float HIST_MAX_MS = 50f;
         private final int[] histogram = new int[HIST_BINS];
         private int histTotal = 0;
+        // v3.9: 实时帧时间频谱（最近60帧滑动窗口）
+        private static final int SPECTRUM_WINDOW = 60;
+        private final int[] spectrumBins = new int[SPECTRUM_WINDOW];
+        private int spectrumIdx = 0;
+        private int spectrumCount = 0;
+        private final int[] spectrumHistogram = new int[HIST_BINS];
+        int[] getSpectrum() { return spectrumHistogram; }
+        int getSpectrumCount() { return spectrumCount; }
 
         int[] getHistogram() { return histogram; }
         int getHistTotal() { return histTotal; }
@@ -1246,11 +1445,20 @@ public final class WinlatorHUD {
                     if (ftCount < WINDOW) ftCount++;
                     frameTime = dtMs;
                     fps = 1000.0 / dtMs;
+                    smoothFps = (smoothFps == 0) ? fps : smoothFps * 0.75 + fps * 0.25;
                     if (sView != null) sView.pushGraph(fps);
                     // v3.6: 更新帧时间直方图
                     int bin = Math.min(HIST_BINS - 1, (int)(dtMs / (HIST_MAX_MS / HIST_BINS)));
                     histogram[bin]++;
                     histTotal++;
+                    // v3.9: 滑动窗口频谱
+                    if (spectrumCount == SPECTRUM_WINDOW) {
+                        spectrumHistogram[spectrumBins[spectrumIdx]]--;
+                    }
+                    spectrumBins[spectrumIdx] = bin;
+                    spectrumIdx = (spectrumIdx + 1) % SPECTRUM_WINDOW;
+                    if (spectrumCount < SPECTRUM_WINDOW) spectrumCount++;
+                    spectrumHistogram[bin]++;
                 }
             }
             lastFrameNs = now;
@@ -1345,6 +1553,21 @@ public final class WinlatorHUD {
             selfCheckValue[i] = diskReadKBs >= 0 ? fmt1(diskReadKBs) + "↓" : "N/A"; i++;
             selfCheckStatus[i] = netValid ? 0 : 1;
             selfCheckValue[i] = netValid ? fmt1(netDownKB) + "↓" : "N/A";
+        }
+
+        // v3.9: 整体数据源状态（0=绿, 1=黄, 2=红）
+        int overallStatus() {
+            int[] criticalIdx = {0, 3, 6, 9, 10};
+            boolean anyRed = false, anyYellow = false;
+            for (int idx : criticalIdx) {
+                if (idx < selfCheckStatus.length) {
+                    if (selfCheckStatus[idx] == 2) anyRed = true;
+                    else if (selfCheckStatus[idx] == 1) anyYellow = true;
+                }
+            }
+            if (anyRed) return 2;
+            if (anyYellow) return 1;
+            return 0;
         }
 
         // v3.2: Mali gpuinfo 状态（delta-ms/wall-ms 需要两次调用间状态）
