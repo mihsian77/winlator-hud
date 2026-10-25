@@ -14,7 +14,9 @@
 |------|------|
 | ![横向精简](docs/screenshots/horizontal-compact.png) | ![横向标准](docs/screenshots/horizontal-normal.png) |
 
-详细模式（含帧时间波形图、引擎与进程信息）：
+精简横条默认 7 项中文指标（帧率/GPU/CPU/内存/功耗/处理器温度/电池温度），各项以分隔线区隔，右上角为数据源状态微标。
+
+详细模式（含帧时间波形图、FG 帧生成徽标、引擎与进程信息）：
 
 ![横向详细](docs/screenshots/horizontal-detailed.png)
 
@@ -24,7 +26,7 @@
 |------|------|
 | ![竖向精简](docs/screenshots/vertical-compact.png) | ![竖向详细](docs/screenshots/vertical-detailed.png) |
 
-详细模式含帧时间直方图、GPU/CPU/RAM 仪表盘进度条、逐核心频率、热节流与磁盘 I/O。
+竖向采用 label 左对齐 + 值右对齐的两列式布局；详细模式含帧时间直方图、实时帧时间频谱条、GPU/CPU/RAM 仪表盘进度条、逐核心频率、热节流与磁盘 I/O。
 
 ### 主题（默认蓝 / 暗夜绿 / 暖橙）
 
@@ -68,7 +70,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-3.6.0.aar')
+    implementation files('libs/WinlatorHUD-<最新版本>.aar')
 }
 ```
 
@@ -101,6 +103,9 @@ WinlatorHUD.setOutlineIntensity(0.4f); // 描边强度 0-1
 
 // v3.5+ 主题配色（默认蓝 / 暗夜绿 / 暖橙）
 WinlatorHUD.setTheme(WinlatorHUD.THEME_GREEN);
+
+// v3.9+ 显示语言（默认中文，可选英文）
+WinlatorHUD.setLanguage(WinlatorHUD.LANG_EN);
 
 // v3.1+ 诊断导出（排查"指标读不到"时使用）
 File diag = WinlatorHUD.exportDiagnostics(context);
@@ -137,9 +142,9 @@ WinlatorHUD.stopRecording();
 
 | 模式 | 触发 | 内容 |
 |------|------|------|
-| 精简 | 单击 | FPS + GPU + CPU + RAM |
-| 标准 | 单击 | 默认 14 项核心指标 |
-| 详细 | 单击 | 全部 24 项 + 每核心频率 |
+| 精简 | 单击 | 帧率 + GPU + CPU + 内存 + 功耗 + 处理器温度 + 电池温度（默认） |
+| 标准 | 单击 | 核心指标（含温度/频率/帧时间/1% 低帧） |
+| 详细 | 单击 | 全部指标 + 每核心频率 + 直方图 + 频谱条 |
 | MEGA | 单击 | v3.2+ 超详细：全部指标 + DX 版本 + 刷新率 |
 
 ## 构建与发布
@@ -147,11 +152,11 @@ WinlatorHUD.stopRecording();
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.7.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v3.9.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.7.0
-git push origin v3.7.0
+git tag v3.9.0
+git push origin v3.9.0
 ```
 
 ## 兼容性
@@ -164,7 +169,8 @@ git push origin v3.7.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.8.0 | 当前稳定版 | 数据源自检面板（13源绿黄红状态灯）/ 本地编译验证脚本 / README 效果图 / GitHub 元数据 |
+| v3.9.0 | 当前稳定版 | 中文标签 / 背景贴合内容 / 值标准化 / 实时帧时间频谱条 / 数据源状态微标 / FG 帧生成徽标 / 边缘吸附 |
+| v3.8.0 | 历史版本 | 数据源自检面板（13源绿黄红状态灯）/ 本地编译验证脚本 / README 效果图 / GitHub 元数据 |
 | v3.7.0 | 历史版本 | 记录扩展（21列）/ Demo App / 一键集成补丁脚本 |
 | v3.6.0 | 历史版本 | 功耗三级回退 / 热节流状态 / 帧时间直方图 / 磁盘 I/O |
 | v3.5.0 | 历史版本 | 动态变色 / 仪表盘进度条 / 3套主题 |
