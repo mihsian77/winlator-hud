@@ -6,38 +6,6 @@
 
 > 基于 Android View 渲染管线的 Winlator 性能监控叠加层 — 零 Vulkan layer 依赖，零闪烁，单文件自包含。
 
-## 效果预览
-
-### 横向横条（顶部）
-
-| 精简 | 标准 |
-|------|------|
-| ![横向精简](docs/screenshots/horizontal-compact.png) | ![横向标准](docs/screenshots/horizontal-normal.png) |
-
-精简横条默认 7 项中文指标（帧率/GPU/CPU/内存/功耗/处理器温度/电池温度），各项以分隔线区隔，右上角为数据源状态微标。
-
-详细模式（含帧时间波形图、FG 帧生成徽标、引擎与进程信息）：
-
-![横向详细](docs/screenshots/horizontal-detailed.png)
-
-### 竖向竖列（侧边）
-
-| 精简 | 详细 |
-|------|------|
-| ![竖向精简](docs/screenshots/vertical-compact.png) | ![竖向详细](docs/screenshots/vertical-detailed.png) |
-
-竖向采用 label 左对齐 + 值右对齐的两列式布局；详细模式含帧时间直方图、实时帧时间频谱条、GPU/CPU/RAM 仪表盘进度条、逐核心频率、热节流与磁盘 I/O。
-
-### 主题（默认蓝 / 暗夜绿 / 暖橙）
-
-![三主题对比](docs/screenshots/themes.png)
-
-### 数据源自检面板（v3.8）
-
-每个数据源以绿/黄/红指示灯标出读取状态，集成后能一眼看出哪些值被系统权限拦截：
-
-![自检面板](docs/screenshots/selfcheck.png)
-
 ## 技术架构
 
 WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段独立绘制监控面板，不介入 Vulkan/OpenGL 渲染管线。这一架构从根本上规避了 Vulkan layer 注入方案在 Wine present 机制下的帧同步冲突（表现为闪烁、黑屏或闪退）。
@@ -70,7 +38,7 @@ WinlatorHUD 采用 Android UI 层叠加方案，在 SurfaceFlinger 合成阶段�
 
 ```gradle
 dependencies {
-    implementation files('libs/WinlatorHUD-<最新版本>.aar')
+    implementation files('libs/WinlatorHUD-2.0.0.aar')
 }
 ```
 
@@ -89,44 +57,7 @@ WinlatorHUD.recordFrame();
 
 // 可选：设置容器信息
 WinlatorHUD.setGameInfo("DXVK", "1920x1080", "Wine 9.0");
-
-// v3.1+ 帧生成支持（LSFG / FSR FG 开启时调用）
-// recordFrame() 统计游戏渲染FPS，setPresentedFps() 传入实际显示FPS
-WinlatorHUD.setPresentedFps(displayFps);
-
-// v3.2+ DX 版本（MEGA 模式显示）
-WinlatorHUD.setDxVersion("DX11");
-
-// v3.2+ 可配置外观（可选，默认已持久化）
-WinlatorHUD.setBgAlpha(0xCC);       // 背景透明度 0-255
-WinlatorHUD.setOutlineIntensity(0.4f); // 描边强度 0-1
-
-// v3.5+ 主题配色（默认蓝 / 暗夜绿 / 暖橙）
-WinlatorHUD.setTheme(WinlatorHUD.THEME_GREEN);
-
-// v3.9+ 显示语言（默认中文，可选英文）
-WinlatorHUD.setLanguage(WinlatorHUD.LANG_EN);
-
-// v3.1+ 诊断导出（排查"指标读不到"时使用）
-File diag = WinlatorHUD.exportDiagnostics(context);
-// 或直接获取报告文本
-String report = WinlatorHUD.buildDiagnosticsReport(context);
-
-// v3.3+ 性能记录（CSV/JSON 导出，多项指标时间序列）
-WinlatorHUD.startRecording();
-// ... 游戏运行期间自动采样（默认1秒/点，IO线程零渲染开销）
-File csv = WinlatorHUD.exportRecordingCSV(context);   // Excel/Origin 可直接打开
-File json = WinlatorHUD.exportRecordingJSON(context); // 结构化数据
-WinlatorHUD.stopRecording();
 ```
-
-### 配置持久化（v3.1+）
-
-密度模式、横/竖方向、拖拽位置自动保存到 `SharedPreferences`（`winlator_hud_prefs`），下次启动自动恢复。无需额外调用。
-
-### 多 Fork 接入指南（v3.4+）
-
-集成到官方 / Bionic / glibc / Ludashi / GameNative / WinNative 的精确接入点、recordFrame 调用方式、已有 HUD 共存方案，详见 [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md)。
 
 ## 监控指标（24 项）
 
@@ -142,21 +73,20 @@ WinlatorHUD.stopRecording();
 
 | 模式 | 触发 | 内容 |
 |------|------|------|
-| 精简 | 单击 | 帧率 + GPU + CPU + 内存 + 功耗 + 处理器温度 + 电池温度（默认） |
-| 标准 | 单击 | 核心指标（含温度/频率/帧时间/1% 低帧） |
-| 详细 | 单击 | 全部指标 + 每核心频率 + 直方图 + 频谱条 |
-| MEGA | 单击 | v3.2+ 超详细：全部指标 + DX 版本 + 刷新率 |
+| 精简 | 单击 | FPS + GPU + CPU + RAM |
+| 标准 | 单击 | 默认 14 项核心指标 |
+| 详细 | 单击 | 全部 24 项 |
 
 ## 构建与发布
 
 本仓库的 setup-project.yml 同时承担项目初始化和版本发布两个职责：
 
 - 手动触发（Actions -> Run workflow）：初始化项目结构
-- 推送 tag（git tag v3.9.0 && git push --tags）：自动编译 AAR 并发布到 Releases
+- 推送 tag（git tag v2.0.0 && git push --tags）：自动编译 AAR 并发布到 Releases
 
 ```bash
-git tag v3.9.0
-git push origin v3.9.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 ## 兼容性
@@ -169,37 +99,9 @@ git push origin v3.9.0
 
 | 版本 | 状态 | 说明 |
 |------|------|------|
-| v3.9.0 | 当前稳定版 | 中文标签 / 背景贴合内容 / 值标准化 / 实时帧时间频谱条 / 数据源状态微标 / FG 帧生成徽标 / 边缘吸附 |
-| v3.8.0 | 历史版本 | 数据源自检面板（13源绿黄红状态灯）/ 本地编译验证脚本 / README 效果图 / GitHub 元数据 |
-| v3.7.0 | 历史版本 | 记录扩展（21列）/ Demo App / 一键集成补丁脚本 |
-| v3.6.0 | 历史版本 | 功耗三级回退 / 热节流状态 / 帧时间直方图 / 磁盘 I/O |
-| v3.5.0 | 历史版本 | 动态变色 / 仪表盘进度条 / 3套主题 |
-| v3.4.0 | 历史版本 | 多 Fork 接入指南 |
-| v3.3.0 | 历史版本 | CSV/JSON 性能记录导出 |
-
-## Demo App（v3.7+）
-
-无需集成 Winlator，直接安装即可体验 HUD 全部功能。
-
-```bash
-# 编译 Demo APK
-./gradlew :demo:assembleDebug
-
-# 安装
-adb install demo/build/outputs/apk/debug/demo-debug.apk
-```
-
-Demo 功能：启动 HUD / 模拟帧率（30-120 FPS 随机波动）/ 切换主题 / 释放 HUD。手势操作（单击循环密度、双击切换横竖、拖拽移动、长按锁定）全部可用。
-
-## 一键集成补丁（v3.7+）
-
-自动检测任意 Winlator fork 的 XServerDisplayActivity，生成集成补丁，无需手动找行号。
-
-```bash
-python3 patch/patch_winlator_hud.py /path/to/winlator-project
-```
-
-输出 `winlator-hud-auto.patch` + `PATCH_NOTES.md`，然后 `git apply` 即可。支持官方 / Bionic / glibc / Ludashi / WinNative / GameNative 等全部 fork。
+| v2.0.x | 当前稳定版 | 双布局引擎 + 多厂商 GPU 发现 + 零 GC 渲染 |
+| v2.1.x | 规划中 | Mali 完整支持 + 自定义主题 |
+| v3.0.x | 规划中 | 性能报告导出（CSV/JSON）+ 磁盘 I/O 统计 |
 
 ## 许可证
 
